@@ -10,8 +10,9 @@ from collections import Counter
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-CONFIG_PATH = Path(os.getenv("ALLOWED_COUNTRIES_CONFIG", str(SCRIPT_DIR / "config" / "config.json")))
-GEO_DIR = Path(os.getenv("IPINFO_OUTPUT_DIR", str(SCRIPT_DIR / "db")))
+BASE_DIR = SCRIPT_DIR.parent
+CONFIG_PATH = Path(os.getenv("ALLOWED_COUNTRIES_CONFIG", str(BASE_DIR / "config" / "config.json")))
+GEO_DIR = Path(os.getenv("IPINFO_OUTPUT_DIR", str(BASE_DIR / "db")))
 
 NGINX_ACCESS_LOG = os.getenv("NGINX_ACCESS_LOG", "/var/log/nginx/access.log")
 NGINX_TAIL_LINES = int(os.getenv("LOG_TAIL_LINES", "5500"))

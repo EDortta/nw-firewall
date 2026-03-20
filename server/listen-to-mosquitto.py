@@ -4,6 +4,7 @@ import fcntl
 import ipaddress
 import json
 import os
+import socket
 import shutil
 import subprocess
 import sys
@@ -25,6 +26,15 @@ IP6TABLES_CMD = os.getenv("IP6TABLES_CMD", "/usr/sbin/ip6tables")
 CHAIN = os.getenv("IPTABLES_CHAIN", "INPUT")
 TARGET = os.getenv("IPTABLES_TARGET", "DROP")
 INSERT_AT_TOP = os.getenv("IPTABLES_INSERT_TOP", "1").strip().lower() in {"1", "true", "yes"}
+
+
+def configure_stdio() -> None:
+    # Force immediate log visibility when running as a long-lived process with redirected output.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+    except AttributeError:
+        pass
 
 
 def normalize_ip(value: str) -> str | None:
@@ -106,13 +116,20 @@ def load_mqtt_config(config_path: Path) -> dict:
     if not topic:
         raise ValueError("config.mqtt.topic is required")
 
+    base_client_id = (
+        os.getenv("AUTH_MONITOR_SERVER_CLIENT_ID", "").strip()
+        or str(mqtt_cfg.get("server_client_id", "")).strip()
+        or "auth-monitor-server"
+    )
+    unique_client_id = f"{base_client_id}-{socket.gethostname()}"
+
     return {
         "host": host,
         "port": int(mqtt_cfg.get("port", 1883)),
         "topic": os.getenv("MQTT_TOPIC", topic).strip() or topic,
         "username": str(mqtt_cfg.get("username", "")).strip(),
         "password": str(mqtt_cfg.get("password", "")).strip(),
-        "client_id": str(mqtt_cfg.get("client_id", "auth-monitor-server")).strip() or "auth-monitor-server",
+        "client_id": unique_client_id,
         "keepalive": int(mqtt_cfg.get("keepalive", 60)),
         "qos": int(mqtt_cfg.get("qos", 1)),
     }
@@ -125,8 +142,8 @@ def acquire_single_instance_lock(lock_file: Path):
     try:
         fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        print(f"error: another listener instance is already running (lock={lock_file})", file=sys.stderr)
-        sys.exit(1)
+        print(f"    listener already running (lock={lock_file})")
+        sys.exit(0)
 
     lock_fp.seek(0)
     lock_fp.truncate()
@@ -148,6 +165,37 @@ def create_mqtt_client(client_id: str) -> mqtt.Client:
             pass
 
     return mqtt.Client(client_id=client_id)
+
+
+def resolve_server_identity(mqtt_host: str) -> tuple[str, str]:
+    name = (
+        os.getenv("AUTH_MONITOR_SERVER_NAME", "").strip()
+        or os.getenv("HOSTNAME", "").strip()
+        or socket.gethostname()
+    )
+
+    forced_ip = os.getenv("AUTH_MONITOR_SERVER_IP", "").strip()
+    if forced_ip:
+        return name, forced_ip
+
+    ip = "unknown"
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect((mqtt_host, 1883))
+            ip = sock.getsockname()[0]
+    except OSError:
+        pass
+
+    return name, ip
+
+
+def publish_json(client: mqtt.Client, cfg: dict, payload: dict) -> tuple[bool, str]:
+    body = json.dumps(payload, separators=(",", ":"))
+    info = client.publish(cfg["topic"], body, qos=cfg["qos"], retain=False)
+    info.wait_for_publish()
+    if info.rc != mqtt.MQTT_ERR_SUCCESS:
+        return False, f"publish failed rc={info.rc}"
+    return True, "ok"
 
 
 def apply_action(ip: str, action: str) -> tuple[bool, str]:
@@ -181,6 +229,8 @@ def apply_action(ip: str, action: str) -> tuple[bool, str]:
 
 
 def main() -> None:
+    configure_stdio()
+
     if not is_executable_available(IPTABLES_CMD):
         print(f"error: iptables binary not found: {IPTABLES_CMD}", file=sys.stderr)
         sys.exit(1)
@@ -192,6 +242,7 @@ def main() -> None:
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"config error: {exc}", file=sys.stderr)
         sys.exit(1)
+    server_name, server_ip = resolve_server_identity(cfg["host"])
 
     def on_connect(client, userdata, flags, reason_code, properties=None):
         rc = getattr(reason_code, "value", reason_code)
@@ -216,6 +267,58 @@ def main() -> None:
 
         if not isinstance(payload, dict):
             print("warn: ignored non-object MQTT payload", file=sys.stderr)
+            return
+
+        event = str(payload.get("event", "")).strip().lower()
+        sender_name = str(payload.get("client_name", "")).strip()
+        sender_ip = str(payload.get("client_ip", "")).strip()
+        sender = sender_name or sender_ip or "unknown"
+
+        if event == "client_heartbeat":
+            status = str(payload.get("status", "working")).strip() or "working"
+            print(f"heartbeat from={sender} status={status}")
+            fanout_payload = {
+                "event": "client_heartbeat_broadcast",
+                "status": status,
+                "timestamp": payload.get("timestamp") or "",
+                "source": "auth-monitor/v4/server/listen-to-mosquitto.py",
+                "client_name": server_name,
+                "client_ip": server_ip,
+                "observed_client_name": sender_name,
+                "observed_client_ip": sender_ip,
+            }
+            ok, fanout_status = publish_json(client, cfg, fanout_payload)
+            if ok:
+                print(f"heartbeat_broadcast observer={server_name or server_ip} observed={sender} status={status}")
+            else:
+                print(
+                    (
+                        f"error: heartbeat_broadcast_failed observer={server_name or server_ip} "
+                        f"observed={sender} reason={fanout_status}"
+                    ),
+                    file=sys.stderr,
+                )
+            return
+
+        if event == "client_presence":
+            status = str(payload.get("status", "working")).strip() or "working"
+            observed_name = str(payload.get("observed_client_name", "")).strip()
+            observed_ip = str(payload.get("observed_client_ip", "")).strip()
+            observed = observed_name or observed_ip or "unknown"
+            print(f"presence observer={sender} observed={observed} status={status}")
+            return
+
+        if event == "whitelist_change":
+            ip = normalize_ip(str(payload.get("ip", "")))
+            operation = str(payload.get("operation", "")).strip().lower()
+            if not ip:
+                print(f"warn: whitelist_change missing/invalid ip in payload: {payload}", file=sys.stderr)
+                return
+            print(f"whitelist_change sender={sender} op={operation} ip={ip}")
+            return
+
+        if event and event != "blocked_ip_change":
+            print(f"warn: unsupported event={event} payload={payload}", file=sys.stderr)
             return
 
         ip = normalize_ip(str(payload.get("ip", "")))

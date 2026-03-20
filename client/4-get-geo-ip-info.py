@@ -12,8 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DB_PATH = Path(os.getenv("BLOCKED_IPS_DB_PATH", str(SCRIPT_DIR / "db" / "blocked_ips.db")))
-OUTPUT_DIR = Path(os.getenv("IPINFO_OUTPUT_DIR", str(SCRIPT_DIR / "db")))
+BASE_DIR = SCRIPT_DIR.parent
+DB_PATH = Path(os.getenv("BLOCKED_IPS_DB_PATH", str(BASE_DIR / "db" / "blocked_ips.db")))
+OUTPUT_DIR = Path(os.getenv("IPINFO_OUTPUT_DIR", str(BASE_DIR / "db")))
 IPINFO_BASE_URL = os.getenv("IPINFO_BASE_URL", "https://ipinfo.io")
 IPINFO_TOKEN = os.getenv("IPINFO_TOKEN", "").strip()
 TIMEOUT_SECONDS = float(os.getenv("IPINFO_TIMEOUT_SECONDS", "10"))

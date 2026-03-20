@@ -30,6 +30,15 @@ TARGET = os.getenv("IPTABLES_TARGET", "DROP")
 INSERT_AT_TOP = os.getenv("IPTABLES_INSERT_TOP", "1").strip().lower() in {"1", "true", "yes"}
 
 
+def configure_stdio() -> None:
+    # Force immediate log visibility when running as a long-lived process with redirected output.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+    except AttributeError:
+        pass
+
+
 def normalize_ip(value: str) -> str | None:
     candidate = value.strip().strip("[]")
     if not candidate:
@@ -108,14 +117,20 @@ def load_mqtt_config(config_path: Path) -> dict:
     if not topic:
         raise ValueError("config.mqtt.topic is required")
 
+    base_client_id = (
+        os.getenv("AUTH_MONITOR_AGENT_CLIENT_ID", "").strip()
+        or str(mqtt_cfg.get("agent_client_id", "")).strip()
+        or "auth-monitor-iptables-agent"
+    )
+    unique_client_id = f"{base_client_id}-{socket.gethostname()}"
+
     return {
         "host": host,
         "port": int(mqtt_cfg.get("port", 1883)),
         "topic": os.getenv("MQTT_TOPIC", topic).strip() or topic,
         "username": str(mqtt_cfg.get("username", "")).strip(),
         "password": str(mqtt_cfg.get("password", "")).strip(),
-        "client_id": str(mqtt_cfg.get("agent_client_id", "auth-monitor-iptables-agent")).strip()
-        or "auth-monitor-iptables-agent",
+        "client_id": unique_client_id,
         "keepalive": int(mqtt_cfg.get("keepalive", 60)),
         "qos": int(mqtt_cfg.get("qos", 1)),
     }
@@ -151,6 +166,14 @@ def load_whitelist(path: Path) -> set[str]:
     return out
 
 
+def save_whitelist(path: Path, ips: set[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sorted_ips = sorted(ips, key=lambda v: (ipaddress.ip_address(v).version, int(ipaddress.ip_address(v))))
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"whitelist": sorted_ips}, f, indent=2)
+        f.write("\n")
+
+
 def acquire_single_instance_lock(lock_file: Path):
     lock_file.parent.mkdir(parents=True, exist_ok=True)
     lock_fp = open(lock_file, "a+", encoding="utf-8")
@@ -158,8 +181,8 @@ def acquire_single_instance_lock(lock_file: Path):
     try:
         fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        print(f"error: another iptables-agent instance is already running (lock={lock_file})", file=sys.stderr)
-        sys.exit(1)
+        print(f"    iptables-agent already running (lock={lock_file})")
+        sys.exit(0)
 
     lock_fp.seek(0)
     lock_fp.truncate()
@@ -247,6 +270,8 @@ def apply_action(ip: str, action: str, whitelist: set[str]) -> tuple[bool, str]:
 
 
 def main() -> None:
+    configure_stdio()
+
     if not is_executable_available(IPTABLES_CMD):
         print(f"error: iptables binary not found: {IPTABLES_CMD}", file=sys.stderr)
         sys.exit(1)
@@ -295,6 +320,28 @@ def main() -> None:
         sender_ip = str(payload.get("client_ip", "")).strip()
         sender = sender_name or sender_ip or "unknown"
 
+        if event == "whitelist_change":
+            operation = str(payload.get("operation", "")).strip().lower()
+            if not ip:
+                print(f"warn: whitelist_change missing/invalid ip in payload: {payload}", file=sys.stderr)
+                return
+            if operation not in {"add", "remove"}:
+                print(f"warn: unsupported whitelist_change operation={operation} payload={payload}", file=sys.stderr)
+                return
+
+            whitelist = load_whitelist(WHITELIST_PATH)
+            if operation == "add":
+                changed = ip not in whitelist
+                whitelist.add(ip)
+                save_whitelist(WHITELIST_PATH, whitelist)
+                print(f"whitelist_sync sender={sender} op=add ip={ip} changed={1 if changed else 0}")
+            else:
+                changed = ip in whitelist
+                whitelist.discard(ip)
+                save_whitelist(WHITELIST_PATH, whitelist)
+                print(f"whitelist_sync sender={sender} op=remove ip={ip} changed={1 if changed else 0}")
+            return
+
         if event == "client_heartbeat":
             status = str(payload.get("status", "working")).strip() or "working"
             print(f"heartbeat from={sender} status={status}")
@@ -333,7 +380,15 @@ def main() -> None:
             print(f"presence observer={sender} observed={observed}")
             return
 
-        if event and event != "blocked_ip_change":
+        if event == "client_heartbeat_broadcast":
+            observed_name = str(payload.get("observed_client_name", "")).strip()
+            observed_ip = str(payload.get("observed_client_ip", "")).strip()
+            observed = observed_name or observed_ip or "unknown"
+            status = str(payload.get("status", "working")).strip() or "working"
+            print(f"heartbeat_broadcast observer={sender} observed={observed} status={status}")
+            return
+
+        if event and event not in {"blocked_ip_change"}:
             print(f"warn: unsupported event={event} payload={payload}", file=sys.stderr)
             return
 

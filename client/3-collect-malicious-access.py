@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DB_PATH = Path(os.getenv("BLOCKED_IPS_DB_PATH", str(SCRIPT_DIR / "db" / "blocked_ips.db")))
+BASE_DIR = SCRIPT_DIR.parent
+DB_PATH = Path(os.getenv("BLOCKED_IPS_DB_PATH", str(BASE_DIR / "db" / "blocked_ips.db")))
 ACTION = os.getenv("BLOCKED_IPS_ACTION", "block")
 
 DETECTORS = (

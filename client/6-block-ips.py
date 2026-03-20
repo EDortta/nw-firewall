@@ -81,13 +81,20 @@ def load_config(config_path: Path) -> dict:
     if not topic:
         raise ValueError("config.mqtt.topic is required")
 
+    base_client_id = (
+        str(mqtt.get("publisher_client_id", "")).strip()
+        or str(mqtt.get("client_id", "auth-monitor-client")).strip()
+        or "auth-monitor-client"
+    )
+    unique_client_id = f"{base_client_id}-{socket.gethostname()}-{os.getpid()}"
+
     return {
         "host": host,
         "port": port,
         "username": str(mqtt.get("username", "")).strip(),
         "password": str(mqtt.get("password", "")).strip(),
         "topic": topic,
-        "client_id": str(mqtt.get("client_id", "auth-monitor-client")).strip() or "auth-monitor-client",
+        "client_id": unique_client_id,
         "keepalive": int(mqtt.get("keepalive", 60)),
         "qos": int(mqtt.get("qos", 1)),
     }
@@ -205,20 +212,30 @@ def publish_with_paho(messages: list[dict], cfg: dict) -> tuple[int, str | None]
     if cfg["username"]:
         client.username_pw_set(cfg["username"], cfg["password"])
 
-    client.connect(cfg["host"], cfg["port"], cfg["keepalive"])
+    try:
+        client.connect(cfg["host"], cfg["port"], cfg["keepalive"])
+    except Exception as exc:
+        return 0, f"connect failed: {exc}"
+
     client.loop_start()
 
     try:
         for payload in messages:
             body = json.dumps(payload, separators=(",", ":"))
-            info = client.publish(cfg["topic"], body, qos=cfg["qos"], retain=False)
-            info.wait_for_publish()
+            try:
+                info = client.publish(cfg["topic"], body, qos=cfg["qos"], retain=False)
+                info.wait_for_publish()
+            except Exception as exc:
+                return published, f"publish failed: {exc}"
             if info.rc != mqtt.MQTT_ERR_SUCCESS:
                 return published, f"publish failed rc={info.rc}"
             published += 1
     finally:
-        client.loop_stop()
-        client.disconnect()
+        try:
+            client.loop_stop()
+            client.disconnect()
+        except Exception:
+            pass
 
     return published, None
 
@@ -284,6 +301,13 @@ def main() -> None:
         "client_name": sender_name,
         "client_ip": sender_ip,
     }
+    print(
+        (
+            f"mosquitto_heartbeat status=running host={cfg['host']} port={cfg['port']} "
+            f"topic={cfg['topic']} client_name={sender_name} client_ip={sender_ip}"
+        ),
+        file=sys.stderr,
+    )
 
     messages = []
     for row in pending:
