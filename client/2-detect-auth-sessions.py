@@ -7,7 +7,7 @@ from collections import defaultdict
 
 AUTH_LOG_PATH = os.getenv("AUTH_LOG_PATH", "/var/log/auth.log")
 TAIL_LINES = int(os.getenv("AUTH_LOG_TAIL_LINES", "5500"))
-MIN_EVENTS_PER_IP = int(os.getenv("AUTH_MIN_EVENTS_PER_IP", "1"))
+MIN_EVENTS_PER_IP = int(os.getenv("AUTH_MIN_EVENTS_PER_IP", "5"))
 
 # Example events:
 # sshd[123]: Invalid user admin from 203.0.113.10 port 51422

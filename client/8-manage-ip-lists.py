@@ -2,6 +2,9 @@
 
 import argparse
 import ipaddress
+import base64
+import hashlib
+import hmac
 import json
 import os
 import socket
@@ -47,6 +50,32 @@ def log_line(message: str, *, is_error: bool = False) -> None:
         pass
 
 
+
+
+def resolve_mqtt_password(mqtt_cfg: dict) -> str:
+    env_name = str(mqtt_cfg.get("password_env", "AUTH_MONITOR_MQTT_PASSWORD")).strip()
+    if env_name:
+        from_env = os.getenv(env_name, "").strip()
+        if from_env:
+            return from_env
+    return str(mqtt_cfg.get("password", "")).strip()
+
+
+def sign_payload(payload: dict, secret: str) -> str:
+    unsigned = dict(payload)
+    unsigned.pop("signature", None)
+    body = json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
+def verify_payload_signature(payload: dict, secret: str) -> bool:
+    signature = str(payload.get("signature", ""))
+    if not signature:
+        return False
+    expected = sign_payload(payload, secret)
+    return hmac.compare_digest(signature, expected)
+
 def load_mqtt_config(config_path: Path) -> dict:
     with open(config_path, "r", encoding="utf-8") as f:
         payload = json.load(f)
@@ -74,10 +103,12 @@ def load_mqtt_config(config_path: Path) -> dict:
         "port": int(mqtt_cfg.get("port", 1883)),
         "topic": topic,
         "username": str(mqtt_cfg.get("username", "")).strip(),
-        "password": str(mqtt_cfg.get("password", "")).strip(),
+        "password": resolve_mqtt_password(mqtt_cfg),
         "client_id": unique_client_id,
         "keepalive": int(mqtt_cfg.get("keepalive", 60)),
         "qos": int(mqtt_cfg.get("qos", 1)),
+        "hmac_secret": os.getenv(str(mqtt_cfg.get("event_hmac_env", "AUTH_MONITOR_EVENT_HMAC")).strip() or "AUTH_MONITOR_EVENT_HMAC", "").strip(),
+        "require_signed_events": os.getenv("AUTH_MONITOR_REQUIRE_SIGNATURE", "1").strip().lower() in {"1", "true", "yes"},
     }
 
 
@@ -172,7 +203,7 @@ def publish_event(payload: dict) -> None:
 
     error = publish_with_paho(payload, cfg)
     backend = "paho"
-    if error:
+    if error and os.getenv("ALLOW_INSECURE_MOSQUITTO_PUB", "0").strip().lower() in {"1", "true", "yes"}:
         backend = "mosquitto_pub"
         error = publish_with_mosquitto_pub(payload, cfg)
 
@@ -199,6 +230,8 @@ def publish_change(ip: str, action: str, reason: str) -> None:
         "client_name": sender_name,
         "client_ip": sender_ip,
     }
+    if cfg.get("hmac_secret"):
+        payload["signature"] = sign_payload(payload, cfg["hmac_secret"])
     publish_event(payload)
 
 
@@ -219,6 +252,8 @@ def publish_whitelist_change(ip: str, operation: str, reason: str) -> None:
         "client_name": sender_name,
         "client_ip": sender_ip,
     }
+    if cfg.get("hmac_secret"):
+        payload["signature"] = sign_payload(payload, cfg["hmac_secret"])
     publish_event(payload)
 
 

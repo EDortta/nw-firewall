@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 
 import ipaddress
+import base64
+import fcntl
+import hashlib
+import hmac
 import json
 import os
 import socket
@@ -19,6 +23,8 @@ STATE_PATH = Path(os.getenv("MQTT_LAST_TS_PATH", str(BASE_DIR / "db" / ".mqtt_la
 ONLY_ACTION = os.getenv("BLOCKED_IPS_ONLY_ACTION", "block").strip().lower()
 TOPIC_OVERRIDE = os.getenv("MQTT_TOPIC", "").strip()
 DRY_RUN = os.getenv("MQTT_DRY_RUN", "0").strip().lower() in {"1", "true", "yes"}
+ALLOW_INSECURE_MOSQUITTO_PUB = os.getenv("ALLOW_INSECURE_MOSQUITTO_PUB", "0").strip().lower() in {"1", "true", "yes"}
+LOCK_PATH = Path(os.getenv("BLOCKED_IPS_LOCK_PATH", "/var/lock/zeecred-firewall-v4.lock"))
 
 
 def normalize_ip(value: str) -> str | None:
@@ -64,6 +70,24 @@ def save_state_timestamp(path: Path, ts: datetime) -> None:
     path.write_text(ts.astimezone(timezone.utc).isoformat(), encoding="utf-8")
 
 
+
+
+def resolve_mqtt_password(mqtt_cfg: dict) -> str:
+    env_name = str(mqtt_cfg.get("password_env", "AUTH_MONITOR_MQTT_PASSWORD")).strip()
+    if env_name:
+        from_env = os.getenv(env_name, "").strip()
+        if from_env:
+            return from_env
+    return str(mqtt_cfg.get("password", "")).strip()
+
+
+def sign_payload(payload: dict, secret: str) -> str:
+    unsigned = dict(payload)
+    unsigned.pop("signature", None)
+    body = json.dumps(unsigned, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).digest()
+    return base64.b64encode(digest).decode("ascii")
+
 def load_config(config_path: Path) -> dict:
     with open(config_path, "r", encoding="utf-8") as f:
         payload = json.load(f)
@@ -92,11 +116,12 @@ def load_config(config_path: Path) -> dict:
         "host": host,
         "port": port,
         "username": str(mqtt.get("username", "")).strip(),
-        "password": str(mqtt.get("password", "")).strip(),
+        "password": resolve_mqtt_password(mqtt),
         "topic": topic,
         "client_id": unique_client_id,
         "keepalive": int(mqtt.get("keepalive", 60)),
         "qos": int(mqtt.get("qos", 1)),
+        "hmac_secret": os.getenv(str(mqtt.get("event_hmac_env", "AUTH_MONITOR_EVENT_HMAC")).strip() or "AUTH_MONITOR_EVENT_HMAC", "").strip(),
     }
 
 
@@ -275,7 +300,19 @@ def publish_with_mosquitto_pub(messages: list[dict], cfg: dict) -> tuple[int, st
     return published, None
 
 
+def acquire_single_instance_lock(lock_path: Path):
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = open(lock_path, "w", encoding="utf-8")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print(f"skip: another instance is already running (lock: {lock_path})", file=sys.stderr)
+        sys.exit(0)
+    return lock_file
+
+
 def main() -> None:
+    _lock_handle = acquire_single_instance_lock(LOCK_PATH)
     if not DB_PATH.exists():
         print(f"error: blocked DB not found: {DB_PATH}", file=sys.stderr)
         sys.exit(1)
@@ -324,6 +361,11 @@ def main() -> None:
             }
         )
 
+    if cfg.get("hmac_secret"):
+        heartbeat_message["signature"] = sign_payload(heartbeat_message, cfg["hmac_secret"])
+        for item in messages:
+            item["signature"] = sign_payload(item, cfg["hmac_secret"])
+
     all_messages = [heartbeat_message] + messages
 
     if DRY_RUN:
@@ -341,7 +383,7 @@ def main() -> None:
 
     backend = "paho"
     published, error = publish_with_paho(all_messages, cfg)
-    if error:
+    if error and ALLOW_INSECURE_MOSQUITTO_PUB:
         backend = "mosquitto_pub"
         published, error = publish_with_mosquitto_pub(all_messages, cfg)
 

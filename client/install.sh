@@ -18,6 +18,7 @@ AGENT_CRON_LINE="${CRON_SCHEDULE} ${AGENT_CRON_CMD}"
 MQTT_CHECK_SCRIPT_PATH="${MQTT_CHECK_SCRIPT_PATH:-${BASE_DIR}/client/check-mqtt-connectivity.sh}"
 MQTT_CHECK_STRICT="${MQTT_CHECK_STRICT:-0}"
 CONFIG_PATH="${AUTH_MONITOR_CONFIG:-${BASE_DIR}/config/config.json}"
+AUTH_MONITOR_ALLOW_MISSING_SECRETS="${AUTH_MONITOR_ALLOW_MISSING_SECRETS:-0}"
 
 log_install() {
   local msg="$1"
@@ -26,6 +27,54 @@ log_install() {
     mkdir -p "$(dirname "${LOG_PATH}")"
     echo "${msg}" >> "${LOG_PATH}"
   } 2>/dev/null || true
+}
+
+
+ensure_required_secrets() {
+  local mqtt_pass_env hmac_env
+  readarray -t _secret_keys < <(
+    python3 - "${CONFIG_PATH}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+cfg = Path(sys.argv[1])
+payload = json.loads(cfg.read_text(encoding="utf-8"))
+mqtt = payload.get("mqtt", {})
+print(str(mqtt.get("password_env", "AUTH_MONITOR_MQTT_PASSWORD")).strip() or "AUTH_MONITOR_MQTT_PASSWORD")
+print(str(mqtt.get("event_hmac_env", "AUTH_MONITOR_EVENT_HMAC")).strip() or "AUTH_MONITOR_EVENT_HMAC")
+PY
+  )
+
+  mqtt_pass_env="${_secret_keys[0]:-AUTH_MONITOR_MQTT_PASSWORD}"
+  hmac_env="${_secret_keys[1]:-AUTH_MONITOR_EVENT_HMAC}"
+
+  local missing=()
+  local mqtt_val="${!mqtt_pass_env:-}"
+  local hmac_val="${!hmac_env:-}"
+
+  if [[ -z "${mqtt_val}" || "${mqtt_val}" == "change-me" ]]; then
+    missing+=("${mqtt_pass_env}")
+  fi
+  if [[ -z "${hmac_val}" || "${hmac_val}" == "change-me" ]]; then
+    missing+=("${hmac_env}")
+  fi
+
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    log_install "install_step component=client action=validate_secrets status=ok"
+    return
+  fi
+
+  local joined
+  joined="$(IFS=,; echo "${missing[*]}")"
+  if [[ "${AUTH_MONITOR_ALLOW_MISSING_SECRETS}" == "1" ]]; then
+    log_install "install_step component=client action=validate_secrets status=warn missing=${joined} bypass=1"
+    return
+  fi
+
+  log_install "install_step component=client action=validate_secrets status=failed missing=${joined}"
+  echo "error: required secrets missing. export ${joined} (or set AUTH_MONITOR_ALLOW_MISSING_SECRETS=1 to bypass)" >&2
+  exit 1
 }
 
 ensure_mqtt_iptables_output_allow() {
@@ -133,6 +182,7 @@ if ! command -v mosquitto_pub >/dev/null 2>&1; then
 }
 
 ensure_debian_dependencies
+ensure_required_secrets
 
 stop_running_processes() {
   local proc
