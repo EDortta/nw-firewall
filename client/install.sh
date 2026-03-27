@@ -10,9 +10,16 @@ SCRIPT_PATH="${SCRIPT_PATH:-${BASE_DIR}/client/6-block-ips.py}"
 AGENT_SCRIPT_PATH="${AGENT_SCRIPT_PATH:-${BASE_DIR}/client/7-iptables-agent.py}"
 LOG_PATH="${LOG_PATH:-/var/log/nw-monitor.log}"
 CRON_SCHEDULE="${CRON_SCHEDULE:-* * * * *}"
+AUTH_MONITOR_ENV_FILE="${AUTH_MONITOR_ENV_FILE:-}"
 
-CRON_CMD="${PYTHON_BIN} ${SCRIPT_PATH} >>${LOG_PATH} 2>&1"
-AGENT_CRON_CMD="${PYTHON_BIN} ${AGENT_SCRIPT_PATH} >>${LOG_PATH} 2>&1"
+CRON_ENV_PREFIX=""
+if [[ -n "${AUTH_MONITOR_ENV_FILE}" ]]; then
+  _env_file_escaped="${AUTH_MONITOR_ENV_FILE}"
+  CRON_ENV_PREFIX="set -a; [ -f '${_env_file_escaped}' ] && . '${_env_file_escaped}'; set +a; "
+fi
+
+CRON_CMD="${CRON_ENV_PREFIX}${PYTHON_BIN} ${SCRIPT_PATH} >>${LOG_PATH} 2>&1"
+AGENT_CRON_CMD="${CRON_ENV_PREFIX}${PYTHON_BIN} ${AGENT_SCRIPT_PATH} >>${LOG_PATH} 2>&1"
 CRON_LINE="${CRON_SCHEDULE} ${CRON_CMD}"
 AGENT_CRON_LINE="${CRON_SCHEDULE} ${AGENT_CRON_CMD}"
 MQTT_CHECK_SCRIPT_PATH="${MQTT_CHECK_SCRIPT_PATH:-${BASE_DIR}/client/check-mqtt-connectivity.sh}"

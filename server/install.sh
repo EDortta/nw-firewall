@@ -11,8 +11,15 @@ LOG_PATH="${LOG_PATH:-/var/log/nw-monitor.log}"
 CRON_SCHEDULE="${CRON_SCHEDULE:-* * * * *}"
 CONFIG_PATH="${AUTH_MONITOR_CONFIG:-${BASE_DIR}/config/config.json}"
 AUTH_MONITOR_ALLOW_MISSING_SECRETS="${AUTH_MONITOR_ALLOW_MISSING_SECRETS:-0}"
+AUTH_MONITOR_ENV_FILE="${AUTH_MONITOR_ENV_FILE:-}"
 
-CRON_CMD="${PYTHON_BIN} ${SCRIPT_PATH} >>${LOG_PATH} 2>&1"
+CRON_ENV_PREFIX=""
+if [[ -n "${AUTH_MONITOR_ENV_FILE}" ]]; then
+  _env_file_escaped="${AUTH_MONITOR_ENV_FILE}"
+  CRON_ENV_PREFIX="set -a; [ -f '${_env_file_escaped}' ] && . '${_env_file_escaped}'; set +a; "
+fi
+
+CRON_CMD="${CRON_ENV_PREFIX}${PYTHON_BIN} ${SCRIPT_PATH} >>${LOG_PATH} 2>&1"
 CRON_LINE="${CRON_SCHEDULE} ${CRON_CMD}"
 
 log_install() {
@@ -24,6 +31,30 @@ log_install() {
   } 2>/dev/null || true
 }
 
+
+has_json_items() {
+  local payload="${1:-}"
+  python3 - "${payload}" <<'PY' 2>/dev/null
+import json
+import sys
+
+raw = (sys.argv[1] or "").strip()
+if not raw:
+    print("0")
+    raise SystemExit(0)
+
+try:
+    data = json.loads(raw)
+except Exception:
+    print("0")
+    raise SystemExit(0)
+
+if isinstance(data, list) and any(str(item).strip() for item in data):
+    print("1")
+else:
+    print("0")
+PY
+}
 
 ensure_required_secrets() {
   local mqtt_pass_env hmac_env
@@ -47,12 +78,21 @@ PY
   local missing=()
   local mqtt_val="${!mqtt_pass_env:-}"
   local hmac_val="${!hmac_env:-}"
+  local mqtt_json="${AUTH_MONITOR_MQTT_PASSWORDS_JSON:-}"
+  local hmac_json="${AUTH_MONITOR_EVENT_HMACS_JSON:-}"
+
+  local mqtt_json_ok="$(has_json_items "${mqtt_json}")"
+  local hmac_json_ok="$(has_json_items "${hmac_json}")"
 
   if [[ -z "${mqtt_val}" || "${mqtt_val}" == "change-me" ]]; then
-    missing+=("${mqtt_pass_env}")
+    if [[ "${mqtt_json_ok}" != "1" ]]; then
+      missing+=("${mqtt_pass_env}")
+    fi
   fi
   if [[ -z "${hmac_val}" || "${hmac_val}" == "change-me" ]]; then
-    missing+=("${hmac_env}")
+    if [[ "${hmac_json_ok}" != "1" ]]; then
+      missing+=("${hmac_env}")
+    fi
   fi
 
   if [[ ${#missing[@]} -eq 0 ]]; then

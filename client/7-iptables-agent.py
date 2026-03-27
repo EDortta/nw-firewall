@@ -11,6 +11,7 @@ import socket
 import shutil
 import subprocess
 import sys
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -258,19 +259,42 @@ def resolve_agent_identity(mqtt_host: str) -> tuple[str, str]:
     return name, ip
 
 
+def resolve_external_ip(agent_ip: str) -> str:
+    forced = os.getenv("AUTH_MONITOR_PUBLIC_IP", "").strip()
+    if forced:
+        return forced
+
+    endpoints = (
+        "https://api.ipify.org",
+        "https://ifconfig.me/ip",
+    )
+    for url in endpoints:
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                value = resp.read().decode("utf-8", "ignore").strip()
+            normalized = normalize_ip(value)
+            if normalized:
+                return normalized
+        except Exception:
+            continue
+
+    return agent_ip or "unknown"
+
+
 def publish_json(client: mqtt.Client, cfg: dict, payload: dict) -> tuple[bool, str]:
     body = json.dumps(payload, separators=(",", ":"))
     info = client.publish(cfg["topic"], body, qos=cfg["qos"], retain=False)
-    info.wait_for_publish()
     if info.rc != mqtt.MQTT_ERR_SUCCESS:
         return False, f"publish failed rc={info.rc}"
-    return True, "ok"
+    return True, "queued"
 
 
 def apply_action(ip: str, action: str, whitelist: set[str]) -> tuple[bool, str]:
     version = ipaddress.ip_address(ip).version
     cmd_bin = IPTABLES_CMD if version == 4 else IP6TABLES_CMD
 
+    if version == 4 and not is_executable_available(IPTABLES_CMD):
+        return False, f"iptables not found for IPv4 {ip}"
     if version == 6 and not is_executable_available(IP6TABLES_CMD):
         return False, f"ip6tables not found for IPv6 {ip}"
 
@@ -304,8 +328,11 @@ def main() -> None:
     configure_stdio()
 
     if not is_executable_available(IPTABLES_CMD):
-        print(f"error: iptables binary not found: {IPTABLES_CMD}", file=sys.stderr)
-        sys.exit(1)
+        print(
+            f"warn: iptables binary not found: {IPTABLES_CMD}; "
+            "agent will still run for MQTT presence/query events",
+            file=sys.stderr,
+        )
 
     _lock_handle = acquire_single_instance_lock(LOCK_FILE)
 
@@ -314,9 +341,13 @@ def main() -> None:
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"config error: {exc}", file=sys.stderr)
         sys.exit(1)
+    enforce_signed_events = bool(cfg["require_signed_events"] and cfg["hmac_secret"])
     if cfg["require_signed_events"] and not cfg["hmac_secret"]:
-        print("config error: signed events required but no AUTH_MONITOR_EVENT_HMAC configured", file=sys.stderr)
-        sys.exit(1)
+        print(
+            "warn: signed events requested but no AUTH_MONITOR_EVENT_HMAC configured; "
+            "signed control events will be ignored",
+            file=sys.stderr,
+        )
 
     if not WHITELIST_PATH.exists():
         print(f"warn: whitelist file not found, continuing without whitelist ({WHITELIST_PATH})", file=sys.stderr)
@@ -349,7 +380,13 @@ def main() -> None:
 
         event = str(payload.get("event", "")).strip().lower()
         if event in {"blocked_ip_change", "whitelist_change"}:
-            if cfg["require_signed_events"]:
+            if cfg["require_signed_events"] and not cfg["hmac_secret"]:
+                print(
+                    f"warn: ignored signed control event={event} because AUTH_MONITOR_EVENT_HMAC is missing",
+                    file=sys.stderr,
+                )
+                return
+            if enforce_signed_events:
                 if not verify_payload_signature(payload, cfg["hmac_secret"]):
                     print(f"warn: invalid or missing signature for event={event}", file=sys.stderr)
                     return
@@ -384,32 +421,6 @@ def main() -> None:
         if event == "client_heartbeat":
             status = str(payload.get("status", "working")).strip() or "working"
             print(f"heartbeat from={sender} status={status}")
-            presence_payload = {
-                "event": "client_presence",
-                "status": status,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "source": "auth-monitor/v4/client/7-iptables-agent.py",
-                "client_name": agent_name,
-                "client_ip": agent_ip,
-                "observed_client_name": sender_name,
-                "observed_client_ip": sender_ip,
-            }
-            ok, publish_status = publish_json(client, cfg, presence_payload)
-            if ok:
-                print(
-                    (
-                        f"presence_broadcast observer={agent_name or agent_ip} "
-                        f"observed={sender} status={status}"
-                    )
-                )
-            else:
-                print(
-                    (
-                        f"error: failed presence broadcast observer={agent_name or agent_ip} "
-                        f"observed={sender} reason={publish_status}"
-                    ),
-                    file=sys.stderr,
-                )
             return
 
         if event == "client_presence":
@@ -417,6 +428,55 @@ def main() -> None:
             observed_ip = str(payload.get("observed_client_ip", "")).strip()
             observed = observed_name or observed_ip or "unknown"
             print(f"presence observer={sender} observed={observed}")
+            return
+
+        if event == "external_ip_query":
+            request_id = str(payload.get("request_id", "")).strip()
+            targets = payload.get("targets")
+            if isinstance(targets, list) and targets:
+                wanted = {str(item).strip() for item in targets if str(item).strip()}
+                if (
+                    "*" not in wanted
+                    and agent_name not in wanted
+                    and agent_ip not in wanted
+                    and f"{agent_name}|{agent_ip}" not in wanted
+                ):
+                    return
+
+            external_ip = resolve_external_ip(agent_ip)
+            response_payload = {
+                "event": "external_ip_response",
+                "request_id": request_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": "auth-monitor/v4/client/7-iptables-agent.py",
+                "client_name": agent_name,
+                "client_ip": agent_ip,
+                "external_ip": external_ip,
+            }
+            if cfg.get("hmac_secret"):
+                response_payload["signature"] = sign_payload(response_payload, cfg["hmac_secret"])
+            ok, publish_status = publish_json(client, cfg, response_payload)
+            if ok:
+                print(
+                    (
+                        f"external_ip_response request_id={request_id or '-'} "
+                        f"client={agent_name or agent_ip} external_ip={external_ip}"
+                    )
+                )
+            else:
+                print(
+                    (
+                        f"error: external_ip_response_failed request_id={request_id or '-'} "
+                        f"client={agent_name or agent_ip} reason={publish_status}"
+                    ),
+                    file=sys.stderr,
+                )
+            return
+
+        if event == "external_ip_response":
+            response_id = str(payload.get("request_id", "")).strip()
+            response_ip = str(payload.get("external_ip", "")).strip() or "unknown"
+            print(f"external_ip_response_seen sender={sender} request_id={response_id} external_ip={response_ip}")
             return
 
         if event == "client_heartbeat_broadcast":

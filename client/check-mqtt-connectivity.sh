@@ -51,30 +51,42 @@ fi
 echo "check=mqtt_config host=${MQTT_HOST} ip=${MQTT_IP} port=${MQTT_PORT} topic=${MQTT_TOPIC:-unset}"
 
 if command -v iptables >/dev/null 2>&1; then
-  OUTPUT_POLICY="$(iptables -S OUTPUT 2>/dev/null | awk 'NR==1 && $1=="-P"{print $3}')"
-  OUTPUT_POLICY="${OUTPUT_POLICY:-unknown}"
-
-  BLOCK_RULES="$(iptables -S OUTPUT 2>/dev/null | grep -E -- "-d (${MQTT_HOST}|${MQTT_IP})(/32)? .* -j (DROP|REJECT)" || true)"
-  BLOCK_PORT_RULES="$(iptables -S OUTPUT 2>/dev/null | grep -E -- "--dport ${MQTT_PORT} .* -j (DROP|REJECT)" || true)"
-  ALLOW_RULES="$(iptables -S OUTPUT 2>/dev/null | grep -E -- "-d (${MQTT_HOST}|${MQTT_IP})(/32)? .* --dport ${MQTT_PORT} .* -j ACCEPT" || true)"
-
-  echo "check=iptables_output policy=${OUTPUT_POLICY}"
-  if [[ -n "${BLOCK_RULES}" || -n "${BLOCK_PORT_RULES}" ]]; then
-    echo "check=iptables_block status=warn detail=drop_or_reject_rule_detected"
+  IPTABLES_OUTPUT=""
+  if sudo -n iptables -S OUTPUT >/dev/null 2>&1; then
+    IPTABLES_OUTPUT="$(sudo -n iptables -S OUTPUT 2>/dev/null || true)"
   else
-    echo "check=iptables_block status=ok detail=no_explicit_drop_reject_for_mqtt"
+    IPTABLES_OUTPUT="$(iptables -S OUTPUT 2>/dev/null || true)"
   fi
 
-  if [[ -n "${ALLOW_RULES}" ]]; then
-    echo "check=iptables_allow status=ok detail=explicit_accept_rule_found"
+  if [[ -n "${IPTABLES_OUTPUT}" ]]; then
+    OUTPUT_POLICY="$(printf '%s\n' "${IPTABLES_OUTPUT}" | awk 'NR==1 && $1=="-P"{print $3}')"
+    OUTPUT_POLICY="${OUTPUT_POLICY:-unknown}"
+
+    BLOCK_RULES="$(printf '%s\n' "${IPTABLES_OUTPUT}" | grep -E -- "-d (${MQTT_HOST}|${MQTT_IP})(/32)? .* -j (DROP|REJECT)" || true)"
+    BLOCK_PORT_RULES="$(printf '%s\n' "${IPTABLES_OUTPUT}" | grep -E -- "--dport ${MQTT_PORT} .* -j (DROP|REJECT)" || true)"
+    ALLOW_RULES="$(printf '%s\n' "${IPTABLES_OUTPUT}" | grep -E -- "-d (${MQTT_HOST}|${MQTT_IP})(/32)? .* --dport ${MQTT_PORT} .* -j ACCEPT" || true)"
+
+    echo "check=iptables_output policy=${OUTPUT_POLICY}"
+    if [[ -n "${BLOCK_RULES}" || -n "${BLOCK_PORT_RULES}" ]]; then
+      echo "check=iptables_block status=warn detail=drop_or_reject_rule_detected"
+    else
+      echo "check=iptables_block status=ok detail=no_explicit_drop_reject_for_mqtt"
+    fi
+
+    if [[ -n "${ALLOW_RULES}" ]]; then
+      echo "check=iptables_allow status=ok detail=explicit_accept_rule_found"
+    else
+      echo "check=iptables_allow status=info detail=no_explicit_accept_rule_found"
+    fi
   else
-    echo "check=iptables_allow status=info detail=no_explicit_accept_rule_found"
+    echo "check=iptables_output status=info detail=iptables_rules_unreadable"
   fi
 else
   echo "check=iptables_output status=info detail=iptables_not_found"
 fi
 
 TCP_OK=0
+PUB_OK=-1
 if command -v nc >/dev/null 2>&1; then
   if nc -z -w 5 "${MQTT_HOST}" "${MQTT_PORT}" >/dev/null 2>&1; then
     TCP_OK=1
@@ -94,23 +106,37 @@ fi
 if command -v mosquitto_pub >/dev/null 2>&1; then
   TEST_TOPIC="${MQTT_TOPIC:-auth-monitor/blocked-ips}/install-check"
   TEST_PAYLOAD="{\"event\":\"install_check\",\"source\":\"check-mqtt-connectivity.sh\"}"
-  PUB_CMD=(mosquitto_pub -h "${MQTT_HOST}" -p "${MQTT_PORT}" -q 0 -t "${TEST_TOPIC}" -m "${TEST_PAYLOAD}" -W 5)
+  PUB_CMD=(mosquitto_pub -h "${MQTT_HOST}" -p "${MQTT_PORT}" -q 0 -t "${TEST_TOPIC}" -m "${TEST_PAYLOAD}")
   if [[ -n "${MQTT_USER}" ]]; then
     PUB_CMD+=(-u "${MQTT_USER}" -P "${MQTT_PASS}")
   fi
 
-  if "${PUB_CMD[@]}" >/dev/null 2>&1; then
+  PUB_RC=0
+  if command -v timeout >/dev/null 2>&1; then
+    timeout 8 "${PUB_CMD[@]}" >/dev/null 2>&1 || PUB_RC=$?
+  else
+    "${PUB_CMD[@]}" >/dev/null 2>&1 || PUB_RC=$?
+  fi
+
+  if [[ "${PUB_RC}" -eq 0 ]]; then
+    PUB_OK=1
     echo "check=mosquitto_pub status=ok topic=${TEST_TOPIC}"
   else
+    PUB_OK=0
     echo "check=mosquitto_pub status=warn topic=${TEST_TOPIC} detail=publish_failed"
   fi
 else
   echo "check=mosquitto_pub status=info detail=mosquitto_pub_not_found"
 fi
 
-if [[ "${TCP_OK}" -eq 1 ]]; then
+if [[ "${TCP_OK}" -eq 1 && ( "${PUB_OK}" -eq 1 || "${PUB_OK}" -eq -1 ) ]]; then
   echo "status=ok summary=mqtt_reachable"
   exit 0
+fi
+
+if [[ "${TCP_OK}" -eq 1 && "${PUB_OK}" -eq 0 ]]; then
+  echo "status=warn summary=mqtt_publish_failed"
+  exit 1
 fi
 
 echo "status=warn summary=mqtt_unreachable"

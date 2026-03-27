@@ -105,12 +105,37 @@ def remove_rule(cmd_bin: str, chain: str, ip: str, target: str) -> str | None:
 
 
 
+def parse_json_list_env(var_name: str) -> list[str]:
+    raw = os.getenv(var_name, "").strip()
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        print(f"warn: invalid JSON in {var_name}", file=sys.stderr)
+        return []
+    if not isinstance(payload, list):
+        return []
+
+    values: list[str] = []
+    for item in payload:
+        value = str(item).strip()
+        if value and value not in values:
+            values.append(value)
+    return values
+
+
 def resolve_mqtt_password(mqtt_cfg: dict) -> str:
     env_name = str(mqtt_cfg.get("password_env", "AUTH_MONITOR_MQTT_PASSWORD")).strip()
     if env_name:
         from_env = os.getenv(env_name, "").strip()
         if from_env:
             return from_env
+
+    all_passwords = parse_json_list_env("AUTH_MONITOR_MQTT_PASSWORDS_JSON")
+    if all_passwords:
+        return all_passwords[0]
+
     return str(mqtt_cfg.get("password", "")).strip()
 
 
@@ -152,6 +177,16 @@ def load_mqtt_config(config_path: Path) -> dict:
     )
     unique_client_id = f"{base_client_id}-{socket.gethostname()}"
 
+    hmac_env_name = str(mqtt_cfg.get("event_hmac_env", "AUTH_MONITOR_EVENT_HMAC")).strip() or "AUTH_MONITOR_EVENT_HMAC"
+    hmac_primary = os.getenv(hmac_env_name, "").strip()
+    hmac_secrets: list[str] = []
+    if hmac_primary:
+        hmac_secrets.append(hmac_primary)
+
+    for secret in parse_json_list_env("AUTH_MONITOR_EVENT_HMACS_JSON"):
+        if secret not in hmac_secrets:
+            hmac_secrets.append(secret)
+
     return {
         "host": host,
         "port": int(mqtt_cfg.get("port", 1883)),
@@ -161,7 +196,8 @@ def load_mqtt_config(config_path: Path) -> dict:
         "client_id": unique_client_id,
         "keepalive": int(mqtt_cfg.get("keepalive", 60)),
         "qos": int(mqtt_cfg.get("qos", 1)),
-        "hmac_secret": os.getenv(str(mqtt_cfg.get("event_hmac_env", "AUTH_MONITOR_EVENT_HMAC")).strip() or "AUTH_MONITOR_EVENT_HMAC", "").strip(),
+        "hmac_secret": hmac_primary,
+        "hmac_secrets": hmac_secrets,
         "require_signed_events": os.getenv("AUTH_MONITOR_REQUIRE_SIGNATURE", "1").strip().lower() in {"1", "true", "yes"},
     }
 
@@ -273,8 +309,8 @@ def main() -> None:
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"config error: {exc}", file=sys.stderr)
         sys.exit(1)
-    if cfg["require_signed_events"] and not cfg["hmac_secret"]:
-        print("config error: signed events required but no AUTH_MONITOR_EVENT_HMAC configured", file=sys.stderr)
+    if cfg["require_signed_events"] and not cfg["hmac_secrets"]:
+        print("config error: signed events required but no AUTH_MONITOR_EVENT_HMAC(S) configured", file=sys.stderr)
         sys.exit(1)
     server_name, server_ip = resolve_server_identity(cfg["host"])
 
@@ -306,7 +342,7 @@ def main() -> None:
         event = str(payload.get("event", "")).strip().lower()
         if event in {"blocked_ip_change", "whitelist_change"}:
             if cfg["require_signed_events"]:
-                if not verify_payload_signature(payload, cfg["hmac_secret"]):
+                if not any(verify_payload_signature(payload, secret) for secret in cfg["hmac_secrets"]):
                     print(f"warn: invalid or missing signature for event={event}", file=sys.stderr)
                     return
         sender_name = str(payload.get("client_name", "")).strip()
