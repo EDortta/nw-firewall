@@ -1,0 +1,65 @@
+version: 1
+node_id: api-stg1
+timezone: UTC
+
+logs:
+  auth_log: /var/log/auth.log
+  nginx_access_glob:
+    - /var/log/nginx/access.log
+    - /var/log/nginx/*access*.log
+
+detection:
+  window_seconds:
+    nginx_404_burst: 120
+    auth_fail_burst: 300
+    high_risk_path_burst: 120
+    unique_path_probe_burst: 120
+  thresholds:
+    nginx_404_burst: 12
+    auth_fail_burst: 6
+    high_risk_path_burst: 3
+    unique_path_probe_burst: 8
+  weights:
+    nginx_404_burst: 60
+    auth_fail_burst: 40
+    high_risk_path_burst: 30
+    unique_path_probe_burst: 30
+  block_score: 80
+  block_ttl_seconds: 3600
+  debounce_seconds: 120
+  high_risk_paths:
+    - /.env
+    - /wp-login.php
+    - /wp-admin
+    - /phpmyadmin
+    - /.git/config
+    - /owa
+    - /sdk/
+  ignore_path_patterns:
+    - /status
+    - /health
+    - /api/health/
+  ignore_ips:
+    - 127.0.0.1
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+
+mqtt:
+  host: 127.0.0.1
+  port: 1883
+  topic_risk_v1: security/risk-ip/v1
+  username: security-agent
+  password_env: SECURITY_MQTT_PASSWORD
+  hmac_secret_env: SECURITY_EVENT_HMAC
+  qos: 1
+
+state:
+  sqlite_path: /var/lib/security-v4/security-v4.db
+
+enforcer:
+  backend: ipset_nft
+  set_name: risk_block_v4
+  dry_run: false
+  allowlist:
+    - 127.0.0.1
