@@ -6,6 +6,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="${BASE_DIR:-$(cd -- "${SCRIPT_DIR}/.." && pwd)}"
 PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3}"
+VENV_PATH="${VENV_PATH:-/opt/auth-monitor-venv}"
+API_PYTHON_BIN="${VENV_PATH}/bin/python3"
 SCRIPT_PATH="${SCRIPT_PATH:-${BASE_DIR}/server/listen-to-mosquitto.py}"
 API_SCRIPT_PATH="${API_SCRIPT_PATH:-${BASE_DIR}/security-v4/api.py}"
 LOG_PATH="${LOG_PATH:-/var/log/nw-monitor.log}"
@@ -22,7 +24,7 @@ fi
 
 CRON_CMD="${CRON_ENV_PREFIX}${PYTHON_BIN} ${SCRIPT_PATH} >>${LOG_PATH} 2>&1"
 CRON_LINE="${CRON_SCHEDULE} ${CRON_CMD}"
-API_CRON_CMD="${CRON_ENV_PREFIX}${PYTHON_BIN} ${API_SCRIPT_PATH} >>${LOG_PATH} 2>&1"
+API_CRON_CMD="${CRON_ENV_PREFIX}${API_PYTHON_BIN} ${API_SCRIPT_PATH} >>${LOG_PATH} 2>&1"
 API_CRON_LINE="${CRON_SCHEDULE} ${API_CRON_CMD}"
 
 log_install() {
@@ -182,23 +184,22 @@ PY
 }
 
 ensure_border_api_dependencies() {
-  local pip_prefix=()
+  local venv_prefix=()
   if [[ "${EUID}" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
-    pip_prefix=(sudo)
+    venv_prefix=(sudo)
   fi
 
-  # Check if root can import fastapi (root's cron runs api.py).
-  local check_cmd=("${PYTHON_BIN}" -c "import fastapi")
-  if [[ "${EUID}" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
-    check_cmd=(sudo "${PYTHON_BIN}" -c "import fastapi")
+  # Create a venv with --system-site-packages so paho-mqtt (apt) is inherited
+  # and only fastapi + uvicorn need to be pip-installed on top.
+  if [[ ! -x "${VENV_PATH}/bin/python3" ]]; then
+    log_install "install_step component=server action=create_venv path=${VENV_PATH} status=starting"
+    "${venv_prefix[@]}" "${PYTHON_BIN}" -m venv "${VENV_PATH}" --system-site-packages
+    log_install "install_step component=server action=create_venv path=${VENV_PATH} status=done"
   fi
 
-  if ! "${check_cmd[@]}" >/dev/null 2>&1; then
+  if ! "${VENV_PATH}/bin/python3" -c "import fastapi" >/dev/null 2>&1; then
     log_install "install_step component=server action=pip_install package=fastapi status=starting"
-    # --break-system-packages is required on Ubuntu 22.04+ / Debian 12+ (PEP 668).
-    "${pip_prefix[@]}" "${PYTHON_BIN}" -m pip install fastapi "uvicorn[standard]" --quiet \
-        --break-system-packages 2>/dev/null \
-      || "${pip_prefix[@]}" "${PYTHON_BIN}" -m pip install fastapi "uvicorn[standard]" --quiet
+    "${venv_prefix[@]}" "${VENV_PATH}/bin/pip" install fastapi "uvicorn[standard]" --quiet
     log_install "install_step component=server action=pip_install package=fastapi status=done"
   fi
 }
