@@ -189,6 +189,14 @@ ensure_border_api_dependencies() {
     venv_prefix=(sudo)
   fi
 
+  # Ensure python3-venv is available (missing on some Debian/Ubuntu images).
+  if ! "${PYTHON_BIN}" -m venv --help >/dev/null 2>&1; then
+    local py_ver
+    py_ver="$("${PYTHON_BIN}" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+    "${venv_prefix[@]}" apt-get install -y "python${py_ver}-venv" 2>/dev/null \
+      || "${venv_prefix[@]}" apt-get install -y python3-venv
+  fi
+
   # Create a venv with --system-site-packages so paho-mqtt (apt) is inherited
   # and only fastapi + uvicorn need to be pip-installed on top.
   if [[ ! -x "${VENV_PATH}/bin/python3" ]]; then
