@@ -97,6 +97,7 @@ detection:
     - 10.0.0.0/8
     - 172.16.0.0/12
     - 192.168.0.0/16
+    - 186.193.114.208  # dev office egress
 
 mqtt:
   host: 127.0.0.1
@@ -116,3 +117,4 @@ enforcer:
   dry_run: false
   allowlist:
     - 127.0.0.1
+    - 186.193.114.208  # dev office egress
