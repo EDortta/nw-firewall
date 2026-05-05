@@ -18,10 +18,13 @@ if [[ -n "${AUTH_MONITOR_ENV_FILE}" ]]; then
   CRON_ENV_PREFIX="set -a; [ -f '${_env_file_escaped}' ] && . '${_env_file_escaped}'; set +a; "
 fi
 
+COLLECTOR_SCRIPT_PATH="${COLLECTOR_SCRIPT_PATH:-${BASE_DIR}/client/3-collect-malicious-access.py}"
 CRON_CMD="${CRON_ENV_PREFIX}${PYTHON_BIN} ${SCRIPT_PATH} >>${LOG_PATH} 2>&1"
 AGENT_CRON_CMD="${CRON_ENV_PREFIX}${PYTHON_BIN} ${AGENT_SCRIPT_PATH} >>${LOG_PATH} 2>&1"
+COLLECTOR_CRON_CMD="${CRON_ENV_PREFIX}${PYTHON_BIN} ${COLLECTOR_SCRIPT_PATH} >>${LOG_PATH} 2>&1"
 CRON_LINE="${CRON_SCHEDULE} ${CRON_CMD}"
 AGENT_CRON_LINE="${CRON_SCHEDULE} ${AGENT_CRON_CMD}"
+COLLECTOR_CRON_LINE="${CRON_SCHEDULE} ${COLLECTOR_CRON_CMD}"
 MQTT_CHECK_SCRIPT_PATH="${MQTT_CHECK_SCRIPT_PATH:-${BASE_DIR}/client/check-mqtt-connectivity.sh}"
 MQTT_CHECK_STRICT="${MQTT_CHECK_STRICT:-0}"
 CONFIG_PATH="${AUTH_MONITOR_CONFIG:-${BASE_DIR}/config/config.json}"
@@ -206,6 +209,17 @@ stop_running_processes() {
     done
   fi
 
+  # Stop collector process (if running).
+  if mapfile -t pids < <(pgrep -f -- "${COLLECTOR_SCRIPT_PATH}" 2>/dev/null); then
+    for proc in "${pids[@]}"; do
+      kill "${proc}" 2>/dev/null || true
+    done
+    sleep 1
+    for proc in "${pids[@]}"; do
+      kill -9 "${proc}" 2>/dev/null || true
+    done
+  fi
+
   # Stop root agent process (if running), it may keep old code loaded.
   if [[ "${EUID}" -eq 0 ]]; then
     if mapfile -t pids < <(pgrep -f -- "${AGENT_SCRIPT_PATH}" 2>/dev/null); then
@@ -262,7 +276,7 @@ TMP_USER_CRON="$(mktemp)"
 trap 'rm -f "${TMP_USER_CRON}" "${TMP_ROOT_CRON}"' EXIT
 
 # User crontab: remove monitor jobs, they now run as root.
-(crontab -l 2>/dev/null || true) | grep -F -v "${CRON_CMD}" | grep -F -v "${AGENT_CRON_CMD}" | grep -F -v "${SCRIPT_PATH}" | grep -F -v "${AGENT_SCRIPT_PATH}" > "${TMP_USER_CRON}" || true
+(crontab -l 2>/dev/null || true) | grep -F -v "${CRON_CMD}" | grep -F -v "${AGENT_CRON_CMD}" | grep -F -v "${COLLECTOR_CRON_CMD}" | grep -F -v "${SCRIPT_PATH}" | grep -F -v "${AGENT_SCRIPT_PATH}" | grep -F -v "${COLLECTOR_SCRIPT_PATH}" > "${TMP_USER_CRON}" || true
 crontab "${TMP_USER_CRON}"
 log_install "install_step component=client action=update_user_crontab status=done"
 
@@ -271,8 +285,11 @@ if [[ "${EUID}" -eq 0 ]]; then
   (crontab -l -u root 2>/dev/null || true) \
     | grep -F -v "${CRON_CMD}" \
     | grep -F -v "${AGENT_CRON_CMD}" \
+    | grep -F -v "${COLLECTOR_CRON_CMD}" \
     | grep -F -v "${SCRIPT_PATH}" \
-    | grep -F -v "${AGENT_SCRIPT_PATH}" > "${TMP_ROOT_CRON}" || true
+    | grep -F -v "${AGENT_SCRIPT_PATH}" \
+    | grep -F -v "${COLLECTOR_SCRIPT_PATH}" > "${TMP_ROOT_CRON}" || true
+  echo "${COLLECTOR_CRON_LINE}" >> "${TMP_ROOT_CRON}"
   echo "${CRON_LINE}" >> "${TMP_ROOT_CRON}"
   echo "${AGENT_CRON_LINE}" >> "${TMP_ROOT_CRON}"
   crontab -u root "${TMP_ROOT_CRON}"
@@ -284,14 +301,18 @@ else
   (sudo crontab -l -u root 2>/dev/null || true) \
     | grep -F -v "${CRON_CMD}" \
     | grep -F -v "${AGENT_CRON_CMD}" \
+    | grep -F -v "${COLLECTOR_CRON_CMD}" \
     | grep -F -v "${SCRIPT_PATH}" \
-    | grep -F -v "${AGENT_SCRIPT_PATH}" > "${TMP_ROOT_CRON}" || true
+    | grep -F -v "${AGENT_SCRIPT_PATH}" \
+    | grep -F -v "${COLLECTOR_SCRIPT_PATH}" > "${TMP_ROOT_CRON}" || true
+  echo "${COLLECTOR_CRON_LINE}" >> "${TMP_ROOT_CRON}"
   echo "${CRON_LINE}" >> "${TMP_ROOT_CRON}"
   echo "${AGENT_CRON_LINE}" >> "${TMP_ROOT_CRON}"
   sudo crontab -u root "${TMP_ROOT_CRON}"
 fi
 
 log_install "removed_from_user_crontab cmd=${CRON_CMD}"
+log_install "installed_for_root cron=${COLLECTOR_CRON_LINE}"
 log_install "installed_for_root cron=${CRON_LINE}"
 log_install "installed_for_root cron=${AGENT_CRON_LINE}"
 log_install "install_done component=client host=$(hostname) status=ok"
