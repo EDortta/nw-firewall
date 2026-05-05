@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="${BASE_DIR:-$(cd -- "${SCRIPT_DIR}/.." && pwd)}"
 PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3}"
 SCRIPT_PATH="${SCRIPT_PATH:-${BASE_DIR}/server/listen-to-mosquitto.py}"
+API_SCRIPT_PATH="${API_SCRIPT_PATH:-${BASE_DIR}/security-v4/api.py}"
 LOG_PATH="${LOG_PATH:-/var/log/nw-monitor.log}"
 CRON_SCHEDULE="${CRON_SCHEDULE:-* * * * *}"
 CONFIG_PATH="${AUTH_MONITOR_CONFIG:-${BASE_DIR}/config/config.json}"
@@ -21,6 +22,8 @@ fi
 
 CRON_CMD="${CRON_ENV_PREFIX}${PYTHON_BIN} ${SCRIPT_PATH} >>${LOG_PATH} 2>&1"
 CRON_LINE="${CRON_SCHEDULE} ${CRON_CMD}"
+API_CRON_CMD="${CRON_ENV_PREFIX}${PYTHON_BIN} ${API_SCRIPT_PATH} >>${LOG_PATH} 2>&1"
+API_CRON_LINE="${CRON_SCHEDULE} ${API_CRON_CMD}"
 
 log_install() {
   local msg="$1"
@@ -93,6 +96,10 @@ PY
     if [[ "${hmac_json_ok}" != "1" ]]; then
       missing+=("${hmac_env}")
     fi
+  fi
+
+  if [[ -z "${SECURITY_API_KEY:-}" || "${SECURITY_API_KEY:-}" == "change-me" ]]; then
+    missing+=("SECURITY_API_KEY")
   fi
 
   if [[ ${#missing[@]} -eq 0 ]]; then
@@ -174,6 +181,14 @@ PY
   done
 }
 
+ensure_border_api_dependencies() {
+  if ! "${PYTHON_BIN}" -c "import fastapi" >/dev/null 2>&1; then
+    log_install "install_step component=server action=pip_install package=fastapi status=starting"
+    "${PYTHON_BIN}" -m pip install fastapi "uvicorn[standard]" --quiet
+    log_install "install_step component=server action=pip_install package=fastapi status=done"
+  fi
+}
+
 stop_running_processes() {
   local pid
   local pids=()
@@ -188,14 +203,27 @@ stop_running_processes() {
     done
   fi
 
+  if mapfile -t pids < <(pgrep -f -- "${API_SCRIPT_PATH}" 2>/dev/null); then
+    for pid in "${pids[@]}"; do
+      kill "${pid}" 2>/dev/null || true
+    done
+    sleep 1
+    for pid in "${pids[@]}"; do
+      kill -9 "${pid}" 2>/dev/null || true
+    done
+  fi
+
   if [[ "${EUID}" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
     sudo pkill -f -- "${SCRIPT_PATH}" 2>/dev/null || true
     sudo pkill -9 -f -- "${SCRIPT_PATH}" 2>/dev/null || true
+    sudo pkill -f -- "${API_SCRIPT_PATH}" 2>/dev/null || true
+    sudo pkill -9 -f -- "${API_SCRIPT_PATH}" 2>/dev/null || true
   fi
 }
 
 log_install "install_start component=server host=$(hostname) script=${BASH_SOURCE[0]}"
 ensure_required_secrets
+ensure_border_api_dependencies
 stop_running_processes
 log_install "install_step component=server action=stop_running_processes status=done"
 ensure_mqtt_iptables_output_allow
@@ -208,16 +236,23 @@ TMP_USER_CRON="$(mktemp)"
 trap 'rm -f "${TMP_USER_CRON}" "${TMP_ROOT_CRON}"' EXIT
 
 # User crontab: remove monitor jobs, they now run as root.
-(crontab -l 2>/dev/null || true) | grep -F -v "${CRON_CMD}" | grep -F -v "${SCRIPT_PATH}" > "${TMP_USER_CRON}" || true
+(crontab -l 2>/dev/null || true) \
+  | grep -F -v "${CRON_CMD}" \
+  | grep -F -v "${API_CRON_CMD}" \
+  | grep -F -v "${SCRIPT_PATH}" \
+  | grep -F -v "${API_SCRIPT_PATH}" > "${TMP_USER_CRON}" || true
 crontab "${TMP_USER_CRON}"
 log_install "install_step component=server action=update_user_crontab status=done"
 
-# Root crontab: install listener with required privileges (iptables + /var/run lock).
+# Root crontab: install listener and border API with required privileges.
 if [[ "${EUID}" -eq 0 ]]; then
   (crontab -l -u root 2>/dev/null || true) \
     | grep -F -v "${CRON_CMD}" \
-    | grep -F -v "${SCRIPT_PATH}" > "${TMP_ROOT_CRON}" || true
+    | grep -F -v "${API_CRON_CMD}" \
+    | grep -F -v "${SCRIPT_PATH}" \
+    | grep -F -v "${API_SCRIPT_PATH}" > "${TMP_ROOT_CRON}" || true
   echo "${CRON_LINE}" >> "${TMP_ROOT_CRON}"
+  echo "${API_CRON_LINE}" >> "${TMP_ROOT_CRON}"
   crontab -u root "${TMP_ROOT_CRON}"
 else
   if ! command -v sudo >/dev/null 2>&1; then
@@ -226,11 +261,15 @@ else
   fi
   (sudo crontab -l -u root 2>/dev/null || true) \
     | grep -F -v "${CRON_CMD}" \
-    | grep -F -v "${SCRIPT_PATH}" > "${TMP_ROOT_CRON}" || true
+    | grep -F -v "${API_CRON_CMD}" \
+    | grep -F -v "${SCRIPT_PATH}" \
+    | grep -F -v "${API_SCRIPT_PATH}" > "${TMP_ROOT_CRON}" || true
   echo "${CRON_LINE}" >> "${TMP_ROOT_CRON}"
+  echo "${API_CRON_LINE}" >> "${TMP_ROOT_CRON}"
   sudo crontab -u root "${TMP_ROOT_CRON}"
 fi
 
 log_install "removed_from_user_crontab cmd=${CRON_CMD}"
 log_install "installed_for_root cron=${CRON_LINE}"
+log_install "installed_for_root cron=${API_CRON_LINE}"
 log_install "install_done component=server host=$(hostname) status=ok"

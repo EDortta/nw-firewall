@@ -389,7 +389,11 @@ def main() -> None:
             if not ip:
                 print(f"warn: whitelist_change missing/invalid ip in payload: {payload}", file=sys.stderr)
                 return
-            print(f"whitelist_change sender={sender} op={operation} ip={ip}")
+            if operation == "add":
+                ok, status = apply_action(ip, "unblock")
+                print(f"whitelist_change sender={sender} op={operation} ip={ip} unblock={status}")
+            else:
+                print(f"whitelist_change sender={sender} op={operation} ip={ip}")
             return
 
         if event and event != "blocked_ip_change":
