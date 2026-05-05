@@ -5,6 +5,26 @@ import os
 import re
 from collections import defaultdict
 
+_PRIVATE_NETS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+)
+
+
+def _is_private(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+        return any(addr in net for net in _PRIVATE_NETS)
+    except ValueError:
+        return False
+
+
 AUTH_LOG_PATH = os.getenv("AUTH_LOG_PATH", "/var/log/auth.log")
 TAIL_LINES = int(os.getenv("AUTH_LOG_TAIL_LINES", "5500"))
 MIN_EVENTS_PER_IP = int(os.getenv("AUTH_MIN_EVENTS_PER_IP", "5"))
@@ -60,7 +80,7 @@ def main() -> None:
                 continue
 
             ip = normalize_ip(match.group("host"))
-            if ip:
+            if ip and not _is_private(ip):
                 event_count_by_ip[ip] += 1
             break
 
