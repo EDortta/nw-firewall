@@ -43,6 +43,26 @@ def configure_stdio() -> None:
         pass
 
 
+_PRIVATE_NETS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+)
+
+
+def _is_private(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+        return any(addr in net for net in _PRIVATE_NETS)
+    except ValueError:
+        return False
+
+
 def normalize_ip(value: str) -> str | None:
     candidate = value.strip().strip("[]")
     if not candidate:
@@ -299,6 +319,8 @@ def apply_action(ip: str, action: str, whitelist: set[str]) -> tuple[bool, str]:
         return False, f"ip6tables not found for IPv6 {ip}"
 
     if action == "block":
+        if _is_private(ip):
+            return False, "private/RFC1918 address; block unconditionally denied"
         if ip in whitelist:
             return False, "ip is whitelisted; block denied"
 

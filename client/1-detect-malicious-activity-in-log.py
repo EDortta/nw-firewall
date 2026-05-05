@@ -7,6 +7,25 @@ from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from urllib.parse import unquote
 
+_PRIVATE_NETS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+)
+
+
+def _is_private(ip: str) -> bool:
+    try:
+        addr = ipaddress.ip_address(ip)
+        return any(addr in net for net in _PRIVATE_NETS)
+    except ValueError:
+        return False
+
 LOG_FILE_PATH = os.getenv("NGINX_ACCESS_LOG", "/var/log/nginx/access.log")
 TAIL_LINES = int(os.getenv("LOG_TAIL_LINES", "5500"))
 
@@ -100,6 +119,8 @@ def main() -> None:
             continue
 
         ip = match.group("ip")
+        if _is_private(ip):
+            continue
         ts = parse_nginx_ts(match.group("ts"))
         raw_target = match.group("target")
         status = int(match.group("status"))
