@@ -182,9 +182,23 @@ PY
 }
 
 ensure_border_api_dependencies() {
-  if ! "${PYTHON_BIN}" -c "import fastapi" >/dev/null 2>&1; then
+  local pip_prefix=()
+  if [[ "${EUID}" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+    pip_prefix=(sudo)
+  fi
+
+  # Check if root can import fastapi (root's cron runs api.py).
+  local check_cmd=("${PYTHON_BIN}" -c "import fastapi")
+  if [[ "${EUID}" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
+    check_cmd=(sudo "${PYTHON_BIN}" -c "import fastapi")
+  fi
+
+  if ! "${check_cmd[@]}" >/dev/null 2>&1; then
     log_install "install_step component=server action=pip_install package=fastapi status=starting"
-    "${PYTHON_BIN}" -m pip install fastapi "uvicorn[standard]" --quiet
+    # --break-system-packages is required on Ubuntu 22.04+ / Debian 12+ (PEP 668).
+    "${pip_prefix[@]}" "${PYTHON_BIN}" -m pip install fastapi "uvicorn[standard]" --quiet \
+        --break-system-packages 2>/dev/null \
+      || "${pip_prefix[@]}" "${PYTHON_BIN}" -m pip install fastapi "uvicorn[standard]" --quiet
     log_install "install_step component=server action=pip_install package=fastapi status=done"
   fi
 }
