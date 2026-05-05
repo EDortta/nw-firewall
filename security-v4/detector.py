@@ -85,10 +85,12 @@ def enrich_nginx_signal(
     *,
     high_risk_paths: list[str],
     ignore_path_patterns: list[str],
+    immediate_block_paths: list[str] | None = None,
 ) -> list[SignalEvent]:
     """
     Expand a parsed nginx event into detection signals.
     - ignores status/health endpoints by path pattern
+    - emits immediate_block_hit for zero-tolerance paths (single hit = block)
     - emits rule-specific signals for scoring
     """
     path = event.path or ""
@@ -98,6 +100,8 @@ def enrich_nginx_signal(
     out: list[SignalEvent] = []
     if event.status in (401, 403, 404):
         out.append(SignalEvent(**{**event.__dict__, "kind": "nginx_404"}))
+    if immediate_block_paths and _matches_any(path, immediate_block_paths):
+        out.append(SignalEvent(**{**event.__dict__, "kind": "immediate_block_hit"}))
     if _matches_any(path, high_risk_paths):
         out.append(SignalEvent(**{**event.__dict__, "kind": "high_risk_path"}))
     if event.status >= 400:
@@ -110,6 +114,7 @@ def events_from_nginx_lines(
     *,
     high_risk_paths: list[str],
     ignore_path_patterns: list[str],
+    immediate_block_paths: list[str] | None = None,
 ) -> list[SignalEvent]:
     out: list[SignalEvent] = []
     for line in lines:
@@ -121,6 +126,7 @@ def events_from_nginx_lines(
                 parsed,
                 high_risk_paths=high_risk_paths,
                 ignore_path_patterns=ignore_path_patterns,
+                immediate_block_paths=immediate_block_paths,
             )
         )
     return out
@@ -143,6 +149,7 @@ def score_events(
             "auth_fail_burst": deque(),
             "high_risk_path_burst": deque(),
             "unique_path_probe_burst": deque(),
+            "immediate_block_hit": deque(),
         },
     )
     per_ip_paths: dict[str, deque[tuple[datetime, str]]] = defaultdict(deque)
@@ -161,6 +168,7 @@ def score_events(
             "auth_fail": "auth_fail_burst",
             "high_risk_path": "high_risk_path_burst",
             "unique_path_probe": "unique_path_probe_burst",
+            "immediate_block_hit": "immediate_block_hit",
         }.get(event.kind)
         if not rule_key:
             continue
