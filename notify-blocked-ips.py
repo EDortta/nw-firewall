@@ -29,8 +29,10 @@ CONFIG_PATH = Path(os.getenv("AUTH_MONITOR_CONFIG", str(SCRIPT_DIR / "config" / 
 NOTIFY_CMD = os.getenv("NOTIFY_CMD", "notify-send")
 # Events received within this window (seconds) are grouped into one notification.
 BATCH_WINDOW = float(os.getenv("NOTIFY_BATCH_WINDOW", "4"))
+MAX_DETAIL_NOTIFICATIONS = 2  # full notifications per flush; +1 summary if there are more
 
-_buffer: dict[tuple[str, str], list[str]] = {}  # (sender, reason) -> [ip, ...]
+_buffer: dict[tuple[str, str], list[str]] = {}  # (ip, reason) -> [sender, ...]
+_seen: dict[str, str] = {}                       # ip -> last notified reason
 _flush_timer: threading.Timer | None = None
 _lock = threading.Lock()
 
@@ -93,30 +95,52 @@ def _notify(title: str, body: str) -> None:
 def _flush() -> None:
     global _flush_timer
     with _lock:
-        groups = dict(_buffer)
+        groups = list(_buffer.items())  # [(ip, reason), [sender, ...]]
         _buffer.clear()
         _flush_timer = None
+        for (ip, reason), _ in groups:
+            _seen[ip] = reason
 
-    for (sender, reason), ips in groups.items():
-        title = f"IP Blocked: {ips[0]}"
-        body_parts = [f"Server: {sender}"]
+    detail = groups[:MAX_DETAIL_NOTIFICATIONS]
+    remainder = groups[MAX_DETAIL_NOTIFICATIONS:]
+
+    for (ip, reason), senders in detail:
+        title = f"IP Blocked: {ip}"
+        body_parts = [f"Server: {senders[0]}"]
+        extra_servers = len(senders) - 1
+        if extra_servers > 0:
+            body_parts.append(f"+{extra_servers} more server{'s' if extra_servers > 1 else ''} blocking it")
         if reason:
             body_parts.append(f"Reason: {reason}")
-        extra = len(ips) - 1
-        if extra > 0:
-            body_parts.append(f"+{extra} more IP{'s' if extra > 1 else ''} blocked")
-        print(f"blocked ips={','.join(ips)} sender={sender} reason={reason or '-'}")
+        print(f"blocked ip={ip} senders={','.join(senders)} reason={reason or '-'}")
         _notify(title, "\n".join(body_parts))
+
+    if remainder:
+        extra_ips = len(remainder)
+        all_senders = {s for _, senders in remainder for s in senders}
+        title = f"+{extra_ips} more IP{'s' if extra_ips > 1 else ''} blocked"
+        body = f"Across {len(all_senders)} server{'s' if len(all_senders) > 1 else ''}"
+        print(f"summary extra_ips={extra_ips} servers={','.join(sorted(all_senders))}")
+        _notify(title, body)
 
 
 def _queue(ip: str, sender: str, reason: str) -> None:
     global _flush_timer
     with _lock:
-        _buffer.setdefault((sender, reason), []).append(ip)
+        if _seen.get(ip) == reason:
+            return
+        senders = _buffer.setdefault((ip, reason), [])
+        if sender not in senders:
+            senders.append(sender)
         if _flush_timer is None:
             _flush_timer = threading.Timer(BATCH_WINDOW, _flush)
             _flush_timer.daemon = True
             _flush_timer.start()
+
+
+def _clear_seen(ip: str) -> None:
+    with _lock:
+        _seen.pop(ip, None)
 
 
 def main() -> None:
@@ -146,6 +170,13 @@ def main() -> None:
             return
 
         event = str(payload.get("event", "")).strip().lower()
+
+        if event == "whitelist_change":
+            ip = str(payload.get("ip", "")).strip()
+            if ip:
+                _clear_seen(ip)
+            return
+
         action = str(payload.get("action", "block")).strip().lower()
 
         if event and event != "blocked_ip_change":
