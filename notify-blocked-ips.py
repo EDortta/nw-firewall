@@ -16,6 +16,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 try:
@@ -26,6 +27,12 @@ except ImportError:
 SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = Path(os.getenv("AUTH_MONITOR_CONFIG", str(SCRIPT_DIR / "config" / "config.json")))
 NOTIFY_CMD = os.getenv("NOTIFY_CMD", "notify-send")
+# Events received within this window (seconds) are grouped into one notification.
+BATCH_WINDOW = float(os.getenv("NOTIFY_BATCH_WINDOW", "4"))
+
+_buffer: dict[tuple[str, str], list[str]] = {}  # (sender, reason) -> [ip, ...]
+_flush_timer: threading.Timer | None = None
+_lock = threading.Lock()
 
 
 def _load_config(path: Path) -> dict:
@@ -83,6 +90,35 @@ def _notify(title: str, body: str) -> None:
     print(f"[notify] {title} | {body}")
 
 
+def _flush() -> None:
+    global _flush_timer
+    with _lock:
+        groups = dict(_buffer)
+        _buffer.clear()
+        _flush_timer = None
+
+    for (sender, reason), ips in groups.items():
+        title = f"IP Blocked: {ips[0]}"
+        body_parts = [f"Server: {sender}"]
+        if reason:
+            body_parts.append(f"Reason: {reason}")
+        extra = len(ips) - 1
+        if extra > 0:
+            body_parts.append(f"+{extra} more IP{'s' if extra > 1 else ''} blocked")
+        print(f"blocked ips={','.join(ips)} sender={sender} reason={reason or '-'}")
+        _notify(title, "\n".join(body_parts))
+
+
+def _queue(ip: str, sender: str, reason: str) -> None:
+    global _flush_timer
+    with _lock:
+        _buffer.setdefault((sender, reason), []).append(ip)
+        if _flush_timer is None:
+            _flush_timer = threading.Timer(BATCH_WINDOW, _flush)
+            _flush_timer.daemon = True
+            _flush_timer.start()
+
+
 def main() -> None:
     try:
         cfg = _load_config(CONFIG_PATH)
@@ -128,12 +164,7 @@ def main() -> None:
             or "unknown"
         )
 
-        body_parts = [f"Server: {sender}"]
-        if reason:
-            body_parts.append(f"Reason: {reason}")
-
-        print(f"blocked ip={ip} sender={sender} reason={reason or '-'}")
-        _notify(f"IP Blocked: {ip}", "\n".join(body_parts))
+        _queue(ip, sender, reason)
 
     client = _create_client(cfg["client_id"])
     client.on_connect = on_connect
