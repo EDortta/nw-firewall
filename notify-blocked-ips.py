@@ -32,7 +32,7 @@ BATCH_WINDOW = float(os.getenv("NOTIFY_BATCH_WINDOW", "4"))
 MAX_DETAIL_NOTIFICATIONS = 2  # full notifications per flush; +1 summary if there are more
 
 _buffer: dict[tuple[str, str], list[str]] = {}  # (ip, reason) -> [sender, ...]
-_seen: dict[str, str] = {}                       # ip -> last notified reason
+_seen: dict[str, set[str]] = {}                  # ip -> set of notified reasons
 _flush_timer: threading.Timer | None = None
 _lock = threading.Lock()
 
@@ -99,7 +99,7 @@ def _flush() -> None:
         _buffer.clear()
         _flush_timer = None
         for (ip, reason), _ in groups:
-            _seen[ip] = reason
+            _seen.setdefault(ip, set()).add(reason)
 
     detail = groups[:MAX_DETAIL_NOTIFICATIONS]
     remainder = groups[MAX_DETAIL_NOTIFICATIONS:]
@@ -127,7 +127,7 @@ def _flush() -> None:
 def _queue(ip: str, sender: str, reason: str) -> None:
     global _flush_timer
     with _lock:
-        if _seen.get(ip) == reason:
+        if reason in _seen.get(ip, set()):
             return
         senders = _buffer.setdefault((ip, reason), [])
         if sender not in senders:

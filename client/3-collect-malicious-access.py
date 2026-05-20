@@ -117,9 +117,12 @@ def upsert_ips(ip_reasons: dict[str, set[str]]) -> tuple[list[str], list[str]]:
             inserted.append(ip)
         else:
             reason = merge_reason(row[0], joined_reason)
+            # Do NOT update timestamp: the watermark in 6-block-ips.py relies on the
+            # original insertion time. Refreshing it here would re-publish on every
+            # detector run (detector re-reads the same log tail each minute).
             cur.execute(
-                "UPDATE blocked_ips SET reason=?, action=?, timestamp=? WHERE ip=?",
-                (reason, ACTION, now, ip),
+                "UPDATE blocked_ips SET reason=? WHERE ip=?",
+                (reason, ip),
             )
             updated.append(ip)
 

@@ -98,6 +98,7 @@ detection:
     - 172.16.0.0/12
     - 192.168.0.0/16
     - 186.193.114.208  # dev office egress
+    - 134.199.202.112  # dev machine egress
 
 mqtt:
   host: 127.0.0.1
@@ -118,3 +119,4 @@ enforcer:
   allowlist:
     - 127.0.0.1
     - 186.193.114.208  # dev office egress
+    - 134.199.202.112  # dev machine egress
