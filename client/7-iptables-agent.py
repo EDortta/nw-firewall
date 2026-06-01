@@ -433,6 +433,9 @@ def main() -> None:
                 whitelist.add(ip)
                 save_whitelist(WHITELIST_PATH, whitelist)
                 print(f"whitelist_sync sender={sender} op=add ip={ip} changed={1 if changed else 0}")
+                # Remove any existing DROP rule so the IP is immediately unblocked
+                _ok, _detail = apply_action(ip, "unblock", whitelist)
+                print(f"whitelist_unblock sender={sender} ip={ip} result={_detail}")
             else:
                 changed = ip in whitelist
                 whitelist.discard(ip)

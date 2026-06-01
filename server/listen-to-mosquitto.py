@@ -259,7 +259,10 @@ def resolve_server_identity(mqtt_host: str) -> tuple[str, str]:
 def publish_json(client: mqtt.Client, cfg: dict, payload: dict) -> tuple[bool, str]:
     body = json.dumps(payload, separators=(",", ":"))
     info = client.publish(cfg["topic"], body, qos=cfg["qos"], retain=False)
-    info.wait_for_publish()
+    # Do NOT call wait_for_publish() here: this function is called from inside
+    # on_message callbacks, which run on the same thread as loop_forever().
+    # Waiting for PUBACK inside a callback deadlocks the network loop, preventing
+    # keepalive PINGREQs from being sent and causing broker-side timeout disconnect.
     if info.rc != mqtt.MQTT_ERR_SUCCESS:
         return False, f"publish failed rc={info.rc}"
     return True, "ok"
@@ -394,6 +397,10 @@ def main() -> None:
                 print(f"whitelist_change sender={sender} op={operation} ip={ip} unblock={status}")
             else:
                 print(f"whitelist_change sender={sender} op={operation} ip={ip}")
+            return
+
+        if event == "client_heartbeat_broadcast":
+            # Server receives its own broadcasts back (shared topic). Ignore silently.
             return
 
         if event and event != "blocked_ip_change":

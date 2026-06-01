@@ -110,7 +110,9 @@ def gather_ips(ip_args: list[str], file_path: str | None) -> list[str]:
 
 
 def run_client_manager(command: str, ip: str, reason: str) -> tuple[bool, str]:
-    cmd = [str(CLIENT_MANAGER), command, ip]
+    venv_python = BASE_DIR / ".venv" / "bin" / "python3"
+    interpreter = str(venv_python) if venv_python.exists() else sys.executable
+    cmd = [interpreter, str(CLIENT_MANAGER), command, ip]
     if reason:
         cmd.extend(["--reason", reason])
     try:
