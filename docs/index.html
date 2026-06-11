@@ -100,6 +100,10 @@
     footer { border-top: 1px solid var(--border); padding: 28px 0; text-align: center; font-size: 13px; color: var(--muted); }
     footer a { color: var(--accent); text-decoration: none; }
 
+    /* diagrams */
+    .diagram-wrap { margin: 30px 0 6px; background: #0b0c0f; border: 1px solid var(--border); border-radius: 8px; padding: 18px 14px; overflow-x: auto; }
+    .diag-caption { text-align: center; font-size: 12px; color: var(--muted); margin-top: 6px; }
+
     @media (max-width: 600px) {
       .vs-grid { grid-template-columns: 1fr; }
       .hero { padding: 60px 0 50px; }
@@ -264,6 +268,93 @@
         <p data-i18n="how4_p"></p>
       </div>
     </div>
+
+    <!-- Pipeline flow diagram -->
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 780 218" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+        <defs>
+          <marker id="pf_arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+            <polygon points="0 0,7 2.5,0 5" fill="#454852"/>
+          </marker>
+          <marker id="pf_arr_b" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+            <polygon points="0 0,7 2.5,0 5" fill="#30306a"/>
+          </marker>
+        </defs>
+
+        <!-- row 1 label -->
+        <text x="269" y="11" text-anchor="middle" fill="#333845" font-size="9" letter-spacing="2" font-family="system-ui,sans-serif">SINGLE NODE</text>
+
+        <!-- B1: Log Sources -->
+        <rect x="0" y="18" width="148" height="48" rx="5" fill="#0c0d10" stroke="#252830"/>
+        <text x="74" y="36" text-anchor="middle" fill="#dde0e8" font-size="12" font-weight="600" font-family="system-ui,sans-serif">Log Sources</text>
+        <text x="74" y="50" text-anchor="middle" fill="#3d6a3d" font-size="9" font-family="system-ui,sans-serif">nginx · apache2 · lighttpd</text>
+        <text x="74" y="62" text-anchor="middle" fill="#3d6a3d" font-size="9" font-family="system-ui,sans-serif">caddy · traefik · haproxy · auth.log</text>
+
+        <!-- arrow B1→B2 -->
+        <line x1="148" y1="42" x2="168" y2="42" stroke="#454852" stroke-width="1.5" marker-end="url(#pf_arr)"/>
+
+        <!-- B2: Detector -->
+        <rect x="168" y="18" width="110" height="48" rx="5" fill="#0c0d10" stroke="#252830"/>
+        <text x="223" y="39" text-anchor="middle" fill="#dde0e8" font-size="12" font-weight="600" font-family="system-ui,sans-serif">Detector</text>
+        <text x="223" y="56" text-anchor="middle" fill="#555870" font-size="10" font-family="system-ui,sans-serif">timer · 1 min</text>
+
+        <!-- arrow B2→B3 -->
+        <line x1="278" y1="42" x2="298" y2="42" stroke="#454852" stroke-width="1.5" marker-end="url(#pf_arr)"/>
+
+        <!-- B3: Outbox -->
+        <rect x="298" y="18" width="110" height="48" rx="5" fill="#0c0d10" stroke="#252830"/>
+        <text x="353" y="39" text-anchor="middle" fill="#dde0e8" font-size="12" font-weight="600" font-family="system-ui,sans-serif">Outbox</text>
+        <text x="353" y="56" text-anchor="middle" fill="#555870" font-size="10" font-family="system-ui,sans-serif">SQLite WAL</text>
+
+        <!-- arrow B3→B4 -->
+        <line x1="408" y1="42" x2="428" y2="42" stroke="#454852" stroke-width="1.5" marker-end="url(#pf_arr)"/>
+
+        <!-- B4: Agent -->
+        <rect x="428" y="18" width="110" height="48" rx="5" fill="#0c0d10" stroke="#252830"/>
+        <text x="483" y="39" text-anchor="middle" fill="#dde0e8" font-size="12" font-weight="600" font-family="system-ui,sans-serif">Agent</text>
+        <text x="483" y="56" text-anchor="middle" fill="#555870" font-size="10" font-family="system-ui,sans-serif">daemon</text>
+
+        <!-- agent split: vertical trunk to y=95, horizontal rail, branches to ipset and MQTT -->
+        <line x1="483" y1="66" x2="483" y2="95" stroke="#454852" stroke-width="1.5"/>
+        <line x1="362" y1="95" x2="632" y2="95" stroke="#454852" stroke-width="1.5"/>
+        <line x1="362" y1="95" x2="362" y2="108" stroke="#454852" stroke-width="1.5" marker-end="url(#pf_arr)"/>
+        <line x1="632" y1="95" x2="632" y2="108" stroke="#454852" stroke-width="1.5" marker-end="url(#pf_arr)"/>
+
+        <!-- B5: ipset / iptables -->
+        <rect x="300" y="108" width="124" height="44" rx="5" fill="#0c0d10" stroke="#252830"/>
+        <text x="362" y="127" text-anchor="middle" fill="#dde0e8" font-size="12" font-weight="600" font-family="system-ui,sans-serif">ipset / iptables</text>
+        <text x="362" y="143" text-anchor="middle" fill="#555870" font-size="10" font-family="system-ui,sans-serif">kernel TTL</text>
+
+        <!-- B6: MQTT broker -->
+        <rect x="562" y="108" width="144" height="44" rx="5" fill="#0c0d10" stroke="#22224a"/>
+        <text x="634" y="127" text-anchor="middle" fill="#dde0e8" font-size="12" font-weight="600" font-family="system-ui,sans-serif">MQTT broker</text>
+        <text x="634" y="143" text-anchor="middle" fill="#3d3d8a" font-size="10" font-family="system-ui,sans-serif">TLS :8883 · QoS 1</text>
+
+        <!-- grid section label -->
+        <line x1="360" y1="164" x2="780" y2="164" stroke="#181a20" stroke-dasharray="4,7"/>
+        <text x="569" y="173" text-anchor="middle" fill="#2a2a5a" font-size="9" letter-spacing="2" font-family="system-ui,sans-serif">GRID PROPAGATION</text>
+
+        <!-- fan from MQTT broker: trunk + horizontal rail + 3 downward branches -->
+        <line x1="634" y1="152" x2="634" y2="166" stroke="#30306a" stroke-width="1.5"/>
+        <line x1="430" y1="166" x2="720" y2="166" stroke="#30306a" stroke-width="1.5"/>
+        <line x1="430" y1="166" x2="430" y2="178" stroke="#30306a" stroke-width="1.5" marker-end="url(#pf_arr_b)"/>
+        <line x1="575" y1="166" x2="575" y2="178" stroke="#30306a" stroke-width="1.5" marker-end="url(#pf_arr_b)"/>
+        <line x1="720" y1="166" x2="720" y2="178" stroke="#30306a" stroke-width="1.5" marker-end="url(#pf_arr_b)"/>
+
+        <!-- remote node boxes -->
+        <rect x="370" y="178" width="120" height="36" rx="4" fill="#0c0d10" stroke="#252830"/>
+        <text x="430" y="194" text-anchor="middle" fill="#4a7a4a" font-size="11" font-family="system-ui,sans-serif">node B</text>
+        <text x="430" y="208" text-anchor="middle" fill="#404450" font-size="10" font-family="system-ui,sans-serif">validate → ipset</text>
+
+        <rect x="515" y="178" width="120" height="36" rx="4" fill="#0c0d10" stroke="#252830"/>
+        <text x="575" y="194" text-anchor="middle" fill="#4a7a4a" font-size="11" font-family="system-ui,sans-serif">node C</text>
+        <text x="575" y="208" text-anchor="middle" fill="#404450" font-size="10" font-family="system-ui,sans-serif">validate → ipset</text>
+
+        <rect x="660" y="178" width="120" height="36" rx="4" fill="#0c0d10" stroke="#252830"/>
+        <text x="720" y="194" text-anchor="middle" fill="#4a7a4a" font-size="11" font-family="system-ui,sans-serif">node D … N</text>
+        <text x="720" y="208" text-anchor="middle" fill="#404450" font-size="10" font-family="system-ui,sans-serif">validate → ipset</text>
+      </svg>
+    </div>
   </div>
 </section>
 
@@ -301,6 +392,59 @@
       <div class="card"><span class="card-icon">🗄</span><h3 data-i18n="f6_h"></h3><p data-i18n="f6_p"></p></div>
       <div class="card"><span class="card-icon">🚫</span><h3 data-i18n="f7_h"></h3><p data-i18n="f7_p"></p></div>
       <div class="card"><span class="card-icon">📊</span><h3 data-i18n="f8_h"></h3><p data-i18n="f8_p"></p></div>
+    </div>
+  </div>
+</section>
+
+<!-- IP CHANGE LIFECYCLE -->
+<section>
+  <div class="wrap">
+    <h2 data-i18n="ipc_h2"></h2>
+    <p data-i18n="ipc_p" style="margin-bottom:18px"></p>
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 640 160" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block">
+        <defs>
+          <marker id="lc_arr" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+            <polygon points="0 0,7 2.5,0 5" fill="#454852"/>
+          </marker>
+          <marker id="lc_arr_c" markerWidth="7" markerHeight="5" refX="6" refY="2.5" orient="auto">
+            <polygon points="0 0,7 2.5,0 5" fill="#5a5a3a"/>
+          </marker>
+        </defs>
+
+        <!-- Initial arrow into active state -->
+        <line x1="98" y1="16" x2="98" y2="50" stroke="#454852" stroke-width="1.5" marker-end="url(#lc_arr)"/>
+        <text x="98" y="11" text-anchor="middle" fill="#555565" font-size="10" font-family="system-ui,sans-serif">ip_change(new_ip=X)</text>
+
+        <!-- Transition labels above boxes -->
+        <text x="209" y="44" text-anchor="middle" fill="#555565" font-size="10" font-family="system-ui,sans-serif">ip_change(old_ip=X)</text>
+        <text x="431" y="44" text-anchor="middle" fill="#555565" font-size="10" font-family="system-ui,sans-serif">retain_after expires</text>
+
+        <!-- State: active -->
+        <rect x="40" y="50" width="116" height="44" rx="5" fill="#0c0d10" stroke="#1e3d1e"/>
+        <text x="98" y="69" text-anchor="middle" fill="#dde0e8" font-size="12" font-weight="600" font-family="system-ui,sans-serif">active</text>
+        <text x="98" y="86" text-anchor="middle" fill="#3d6a3d" font-size="10" font-family="system-ui,sans-serif">protected ✓</text>
+
+        <!-- Arrow active → retiring -->
+        <line x1="156" y1="72" x2="262" y2="72" stroke="#454852" stroke-width="1.5" marker-end="url(#lc_arr)"/>
+
+        <!-- State: retiring -->
+        <rect x="262" y="50" width="116" height="44" rx="5" fill="#0c0d10" stroke="#3d3d1a"/>
+        <text x="320" y="69" text-anchor="middle" fill="#dde0e8" font-size="12" font-weight="600" font-family="system-ui,sans-serif">retiring</text>
+        <text x="320" y="86" text-anchor="middle" fill="#7a7a30" font-size="10" font-family="system-ui,sans-serif">grace period ✓</text>
+
+        <!-- Arrow retiring → removed -->
+        <line x1="378" y1="72" x2="484" y2="72" stroke="#454852" stroke-width="1.5" marker-end="url(#lc_arr)"/>
+
+        <!-- State: removed -->
+        <rect x="484" y="50" width="116" height="44" rx="5" fill="#0c0d10" stroke="#3a1a1a"/>
+        <text x="542" y="69" text-anchor="middle" fill="#dde0e8" font-size="12" font-weight="600" font-family="system-ui,sans-serif">removed</text>
+        <text x="542" y="86" text-anchor="middle" fill="#7a3030" font-size="10" font-family="system-ui,sans-serif">blockable</text>
+
+        <!-- Retiring → active (cancel retirement) U-curve -->
+        <path d="M320,94 C320,130 98,130 98,94" stroke="#5a5a3a" stroke-width="1.5" fill="none" marker-end="url(#lc_arr_c)"/>
+        <text x="209" y="150" text-anchor="middle" fill="#5a5a3a" font-size="10" font-family="system-ui,sans-serif">new node claims IP → retirement cancelled</text>
+      </svg>
     </div>
   </div>
 </section>
@@ -366,6 +510,8 @@ const I18N = {
     f6_h: 'SQLite WAL + decisões auditáveis',       f6_p: 'Toda ação (block, unblock, rate_limited…) fica na tabela decisions. Logtail por inode+offset, rotation-safe.',
     f7_h: 'Segredos fora do config',                f7_p: 'Se password ou hmac_secret aparecerem no config.json, o processo recusa inicializar. Segredos só via env vars.',
     f8_h: 'Rate limiter',                           f8_p: 'Janela deslizante de 30 bloqueios/min. Proteção contra mass-block acidental ou forjado.',
+    ipc_h2: 'Ciclo de vida do IP de nó',
+    ipc_p:  'Quando um nó muda de IP, o endereço antigo entra em retenção por um período configurável — permanece protegido contra bloqueio durante a transição. Se outro nó assumir esse endereço antes do prazo, a retenção é cancelada e o IP volta ao estado ativo.',
     spec_h2:   'Especificações',
     spec_col1: 'Componente',
     spec_col2: 'Detalhe',
@@ -425,6 +571,8 @@ const I18N = {
     f6_h: 'SQLite WAL + auditable decisions',     f6_p: 'Every action (block, unblock, rate_limited…) is stored in the decisions table. Logtail by inode+offset, rotation-safe.',
     f7_h: 'Secrets out of config',                f7_p: 'If password or hmac_secret appear in config.json, the process refuses to start. Secrets via env vars only.',
     f8_h: 'Rate limiter',                         f8_p: 'Sliding window of 30 blocks/min. Protection against accidental or forged mass-block.',
+    ipc_h2: 'Node IP lifecycle',
+    ipc_p:  'When a node changes its IP address, the old address enters a retention period — it remains protected from blocking during the transition. If another node claims that address before the deadline, the retirement is cancelled and the IP returns to active status.',
     spec_h2:   'Specifications',
     spec_col1: 'Component',
     spec_col2: 'Detail',
@@ -484,6 +632,8 @@ const I18N = {
     f6_h: 'SQLite WAL + decisiones auditables',    f6_p: 'Toda acción (block, unblock, rate_limited…) queda en la tabla decisions. Logtail por inode+offset, rotation-safe.',
     f7_h: 'Secretos fuera de la configuración',    f7_p: 'Si password o hmac_secret aparecen en config.json, el proceso se niega a iniciar. Secretos solo vía env vars.',
     f8_h: 'Rate limiter',                          f8_p: 'Ventana deslizante de 30 bloqueos/min. Protección contra mass-block accidental o falsificado.',
+    ipc_h2: 'Ciclo de vida de IP de nodo',
+    ipc_p:  'Cuando un nodo cambia su dirección IP, la dirección anterior entra en un período de retención — permanece protegida contra bloqueo durante la transición. Si otro nodo reclama esa dirección antes del plazo, la retirada se cancela y la IP vuelve al estado activo.',
     spec_h2:   'Especificaciones',
     spec_col1: 'Componente',
     spec_col2: 'Detalle',
