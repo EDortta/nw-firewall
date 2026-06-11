@@ -1,0 +1,21 @@
+[Unit]
+Description=authmon v5 border API (broker node only)
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/authmon/env
+ExecStart=/opt/authmon-venv/bin/python3 /opt/authmon/v5/api/api.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/authmon
+ProtectHome=true
+PrivateTmp=true
+StandardOutput=append:/var/log/authmon/api.log
+StandardError=append:/var/log/authmon/api.log
+
+[Install]
+WantedBy=multi-user.target

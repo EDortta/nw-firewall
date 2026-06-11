@@ -1,0 +1,122 @@
+version: 1
+node_id: api-stg1
+timezone: UTC
+
+logs:
+  auth_log: /var/log/auth.log
+  nginx_access_glob:
+    - /var/log/nginx/access.log
+    - /var/log/nginx/*access*.log
+
+detection:
+  window_seconds:
+    nginx_404_burst: 120
+    auth_fail_burst: 300
+    high_risk_path_burst: 120
+    unique_path_probe_burst: 120
+    immediate_block_hit: 300
+  thresholds:
+    nginx_404_burst: 12
+    auth_fail_burst: 6
+    high_risk_path_burst: 3
+    unique_path_probe_burst: 8
+    immediate_block_hit: 1
+  weights:
+    nginx_404_burst: 60
+    auth_fail_burst: 40
+    high_risk_path_burst: 30
+    unique_path_probe_burst: 30
+    immediate_block_hit: 80
+  block_score: 80
+  block_ttl_seconds: 3600
+  debounce_seconds: 120
+  # Single-hit zero-tolerance paths — any request immediately blocks the IP.
+  # No legitimate client ever requests these. Keep this list narrow and deliberate.
+  immediate_block_paths:
+    - /.env              # all .env variants: /.env.prod, /api/.env, etc.
+    - /.git/             # all git paths: /.git/config, /.git/HEAD, /.git/credentials
+    - /.aws/             # AWS credential files: /.aws/credentials, /.aws/config
+    - /wp-config.php     # WordPress config (DB password)
+    - eval-stdin.php     # PHPUnit RCE — POST exploit, no legitimate use
+    - allow_url_include  # PHP RCE via query string (?-d+allow_url_include=1...)
+    - /containers/json   # Docker daemon socket API exposure
+    - etc/passwd         # LFI/path traversal: /etc/passwd, //etc/passwd, ..%2Fetc/passwd
+    - ..%2F              # URL-encoded ../ traversal — no legitimate client sends this
+    - ..%5C              # Windows backslash traversal (..\ encoded)
+    - %2E%2E%2F          # double-encoded dot traversal
+    - %%32%65            # Apache CVE-2021-41773 double-URL-encoded dot bypass
+    - XDEBUG_SESSION_START  # PHP Xdebug remote debugger hijack via query string
+    - terraform.tfstate  # Terraform state file — full infra topology + secrets
+    - invokefunction     # ThinkPHP RCE (call_user_func_array gadget chain)
+    - /remote/login      # Fortinet SSL VPN probe (CVE-2018-13379 and successors)
+    - /bin/sh            # shell invocation via path traversal (Apache CVE-2021-41773)
+    - secrets.json       # secrets file probe: /secrets.json, /config/secrets.json, etc.
+    - /manager/html      # Tomcat Manager admin console — direct RCE vector
+    - "http://"          # absolute URI in path = open proxy / SSRF probe (no legit use on a reverse proxy)
+  high_risk_paths:
+    - /.env
+    - /wp-login.php
+    - /wp-admin
+    - /phpmyadmin
+    - /.git/config
+    - /owa
+    - /sdk/
+    - /hudson
+    - /jenkins
+    - /actuator
+    - /geoserver          # GeoServer RCE (CVE-2024-36401)
+    - /_profiler          # Symfony debug profiler (config/code disclosure)
+    - /ecp/               # Exchange Control Panel
+    - /GponForm           # GPON router RCE
+    - /boaform            # Boa web server exploit
+    - /HNAP1              # D-Link router exploit
+    - /evox/about         # EVox router probe
+    - /cgi-bin/           # CGI scripts (classic RCE vector)
+    - /autodiscover/      # Exchange Autodiscover (SSRF/credential leak)
+    - /debug/default/     # Yii framework debug panel
+    - phpinfo             # PHP info disclosure (/phpinfo.php, /phpinfo)
+    - appsettings.json    # .NET application secrets
+    - credentials.json    # generic credentials file
+    - docker-compose.yml  # Docker compose (may expose service credentials)
+    - .vscode/sftp.json   # VS Code SFTP credential file
+    - /wp-json/           # WordPress REST API (user enum + plugin exploits)
+    - /webmin/            # Webmin admin panel
+    - terraform.tfvars    # Terraform variables (frequently contains secrets)
+    - /.travis.yml        # CI config — API keys and deploy tokens
+    - wp-content/debug.log  # WordPress debug log (stack traces, DB queries)
+    - wp-content/mysql.sql  # WordPress DB dump
+    - dnsmeasure.top      # DNS open-resolver probe (research scanner)
+    - config.json         # generic config file (seen ~160 hits/server)
+    - wp_mail_smtp        # WordPress SMTP credential config
+  ignore_path_patterns:
+    - /status
+    - /health
+    - /api/health/
+  ignore_ips:
+    - 127.0.0.1
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
+    - 186.193.114.208  # dev office egress
+    - 134.199.202.112  # dev machine egress
+
+mqtt:
+  host: 127.0.0.1
+  port: 1883
+  topic_risk_v1: security/risk-ip/v1
+  username: security-agent
+  password_env: SECURITY_MQTT_PASSWORD
+  hmac_secret_env: SECURITY_EVENT_HMAC
+  qos: 1
+
+state:
+  sqlite_path: /var/lib/security-v4/security-v4.db
+
+enforcer:
+  backend: ipset_nft
+  set_name: risk_block_v4
+  dry_run: false
+  allowlist:
+    - 127.0.0.1
+    - 186.193.114.208  # dev office egress
+    - 134.199.202.112  # dev machine egress

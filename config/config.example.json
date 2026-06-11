@@ -1,0 +1,75 @@
+{
+  "node_id": "",
+  "mqtt": {
+    "host": "broker.example.com",
+    "port": 8883,
+    "tls": true,
+    "tls_ca": "",
+    "tls_insecure": false,
+    "username": "authmonitor",
+    "password_env": "AUTHMON_MQTT_PASSWORD",
+    "topic": "authmon/v5/events",
+    "qos": 1,
+    "keepalive": 60
+  },
+  "security": {
+    "hmac_env": "AUTHMON_EVENT_HMAC",
+    "hmac_previous_env": "AUTHMON_EVENT_HMAC_PREVIOUS",
+    "max_event_age_seconds": 300
+  },
+  "enforcement": {
+    "backend": "ipset",
+    "set_prefix": "authmon5",
+    "chain": "INPUT",
+    "target": "DROP",
+    "default_ttl_seconds": 604800,
+    "max_blocks_per_minute": 30,
+    "max_sync_entries": 2000,
+    "never_block": [],
+    "allowlist": []
+  },
+  "detection": {
+    "nginx_access_logs": ["/var/log/nginx/access.log"],
+    "apache_access_logs": [],
+    "lighttpd_access_logs": [],
+    "caddy_access_logs": [],
+    "traefik_access_logs": [],
+    "haproxy_access_logs": [],
+    "auth_log": "/var/log/auth.log",
+    "http_404_burst_threshold": 12,
+    "http_404_window_seconds": 120,
+    "bad_status_threshold": 25,
+    "unique_path_threshold": 15,
+    "bad_status_window_seconds": 600,
+    "auth_fail_threshold": 6,
+    "auth_fail_window_seconds": 300,
+    "immediate_block_paths": [
+      "/.env", "/.git/", "/.aws/", "/wp-config.php", "eval-stdin.php",
+      "allow_url_include", "/containers/json", "etc/passwd", "..%2f",
+      "..%5c", "%2e%2e%2f", "%%32%65", "xdebug_session_start",
+      "terraform.tfstate", "invokefunction", "/remote/login", "/bin/sh",
+      "secrets.json", "/manager/html", "http://"
+    ],
+    "high_risk_paths": [
+      "/wp-login.php", "/wp-admin", "/phpmyadmin", "/owa", "/sdk/",
+      "/hudson", "/jenkins", "/actuator", "/geoserver", "/_profiler",
+      "/ecp/", "/GponForm", "/boaform", "/HNAP1", "/cgi-bin/",
+      "/autodiscover/", "/debug/default/", "phpinfo", "appsettings.json",
+      "credentials.json", "docker-compose.yml", ".vscode/sftp.json",
+      "/wp-json/", "/webmin/", "terraform.tfvars", "/.travis.yml",
+      "wp-content/debug.log", "wp-content/mysql.sql", "wp_mail_smtp"
+    ],
+    "ignore_path_patterns": [
+      "/status", "/health", "/api/health/", "/monitor-service/socket.io/"
+    ],
+    "ignore_ips": []
+  },
+  "state": {
+    "db_path": "/var/lib/authmon/authmon.db",
+    "seen_events_retention_days": 14
+  },
+  "sync": {
+    "heartbeat_interval_seconds": 300,
+    "state_sync_interval_seconds": 3600
+  }
+}

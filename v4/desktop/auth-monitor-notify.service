@@ -1,0 +1,17 @@
+[Unit]
+Description=Auth Monitor - IP Block Desktop Notifications
+After=network-online.target graphical-session.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=__PYTHON__ __BASE_DIR__/notify-blocked-ips.py
+Restart=on-failure
+RestartSec=15
+Environment=AUTH_MONITOR_CONFIG=__BASE_DIR__/config/config.json
+EnvironmentFile=-__ENV_FILE__
+Environment=DISPLAY=:0
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=graphical-session.target

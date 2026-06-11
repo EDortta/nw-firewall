@@ -1,0 +1,10 @@
+[Unit]
+Description=Run authmon v5 detector every minute
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+AccuracySec=10
+
+[Install]
+WantedBy=timers.target

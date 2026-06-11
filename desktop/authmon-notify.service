@@ -1,0 +1,17 @@
+[Unit]
+Description=authmon v5 desktop notifier (block alerts)
+After=network-online.target graphical-session.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/authmon/env
+Environment=PYTHONPATH=%h/.local/lib/authmon-paho
+ExecStart=/usr/bin/python3 %h/.local/share/authmon/notify-blocked-ips.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

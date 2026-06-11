@@ -1,0 +1,22 @@
+[Unit]
+Description=authmon v5 agent (firewall enforcement + MQTT grid)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/authmon/env
+ExecStart=/usr/bin/python3 /opt/authmon/v5/agent/agent.py
+Restart=always
+RestartSec=5
+# Hardening: root is required for ipset/iptables, but confine everything else.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/authmon
+ProtectHome=true
+PrivateTmp=true
+StandardOutput=append:/var/log/authmon/agent.log
+StandardError=append:/var/log/authmon/agent.log
+
+[Install]
+WantedBy=multi-user.target
