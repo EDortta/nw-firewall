@@ -26,7 +26,8 @@
     "max_blocks_per_minute": 30,
     "max_sync_entries": 2000,
     "never_block": [],
-    "allowlist": []
+    "allowlist": [],
+    "peers": []
   },
   "detection": {
     "nginx_access_logs": ["/var/log/nginx/access.log"],

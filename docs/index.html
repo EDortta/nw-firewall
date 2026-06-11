@@ -3,261 +3,138 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>auth-monitor v5 — Defesa coletiva para infraestruturas distribuídas</title>
+  <title>auth-monitor v5</title>
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-
     :root {
-      --bg:       #08090a;
-      --surface:  #0f1012;
-      --border:   #1e2025;
-      --muted:    #3a3d44;
-      --text:     #c8cad0;
-      --bright:   #f0f1f3;
-      --accent:   #e4f222;
-      --accent2:  #4af0b8;
-      --danger:   #f25252;
+      --bg:      #08090a;
+      --surface: #0f1012;
+      --border:  #1e2025;
+      --muted:   #3a3d44;
+      --text:    #c8cad0;
+      --bright:  #f0f1f3;
+      --accent:  #e4f222;
+      --green:   #4af0b8;
+      --red:     #f25252;
     }
-
     html { scroll-behavior: smooth; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 16px; line-height: 1.65; }
 
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      font-size: 16px;
-      line-height: 1.65;
-    }
-
-    /* ── layout ── */
+    /* layout */
     .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
 
-    /* ── nav ── */
-    nav {
-      border-bottom: 1px solid var(--border);
-      padding: 18px 0;
-      position: sticky; top: 0;
-      background: rgba(8,9,10,0.92);
-      backdrop-filter: blur(8px);
-      z-index: 100;
-    }
-    nav .wrap { display: flex; align-items: center; gap: 12px; }
+    /* nav */
+    nav { border-bottom: 1px solid var(--border); padding: 16px 0; position: sticky; top: 0; background: rgba(8,9,10,.92); backdrop-filter: blur(8px); z-index: 100; }
+    nav .wrap { display: flex; align-items: center; gap: 10px; }
     .logo { font-size: 14px; font-weight: 600; color: var(--bright); letter-spacing: .04em; }
-    .badge {
-      font-size: 11px; font-weight: 600; letter-spacing: .08em;
-      background: var(--accent); color: #08090a;
-      padding: 2px 8px; border-radius: 3px;
-    }
+    .badge { font-size: 11px; font-weight: 700; letter-spacing: .08em; background: var(--accent); color: #08090a; padding: 2px 8px; border-radius: 3px; }
+    .lang-spacer { flex: 1; }
+    .lang-switch { display: flex; gap: 4px; }
+    .lang-btn { font-size: 12px; font-weight: 600; letter-spacing: .04em; padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); background: none; color: var(--muted); cursor: pointer; transition: color .12s, border-color .12s; }
+    .lang-btn:hover { color: var(--text); border-color: var(--muted); }
+    .lang-btn.active { color: var(--accent); border-color: var(--accent); }
 
-    /* ── hero ── */
-    .hero {
-      padding: 96px 0 80px;
-      text-align: center;
-    }
-    .hero-diagram { margin-bottom: 48px; }
-    .hero-diagram svg { max-width: 560px; width: 100%; }
-
-    h1 {
-      font-size: clamp(28px, 5vw, 46px);
-      font-weight: 700;
-      color: var(--bright);
-      line-height: 1.15;
-      letter-spacing: -.02em;
-      margin-bottom: 20px;
-    }
+    /* hero */
+    .hero { padding: 88px 0 72px; text-align: center; }
+    .hero-diagram { margin-bottom: 44px; }
+    .hero-diagram svg { max-width: 540px; width: 100%; }
+    h1 { font-size: clamp(26px, 5vw, 44px); font-weight: 700; color: var(--bright); line-height: 1.15; letter-spacing: -.02em; margin-bottom: 18px; }
     h1 em { color: var(--accent); font-style: normal; }
-
-    .subtitle {
-      font-size: 18px;
-      color: var(--text);
-      max-width: 580px;
-      margin: 0 auto 40px;
-    }
-
+    .subtitle { font-size: 17px; color: var(--text); max-width: 560px; margin: 0 auto 36px; }
     .cta-row { display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
-    .btn {
-      display: inline-block;
-      padding: 11px 24px;
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: 600;
-      text-decoration: none;
-      transition: opacity .15s;
-    }
+    .btn { display: inline-block; padding: 10px 22px; border-radius: 6px; font-size: 14px; font-weight: 600; text-decoration: none; transition: opacity .15s; }
     .btn:hover { opacity: .82; }
     .btn-primary { background: var(--accent); color: #08090a; }
-    .btn-ghost {
-      border: 1px solid var(--border);
-      color: var(--text);
-    }
+    .btn-ghost { border: 1px solid var(--border); color: var(--text); }
 
-    /* ── section ── */
-    section { padding: 72px 0; border-top: 1px solid var(--border); }
-    h2 {
-      font-size: 26px;
-      font-weight: 700;
-      color: var(--bright);
-      margin-bottom: 32px;
-      letter-spacing: -.01em;
-    }
-    h3 {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--bright);
-      margin-bottom: 8px;
-    }
-    p { margin-bottom: 16px; }
+    /* sections */
+    section { padding: 68px 0; border-top: 1px solid var(--border); }
+    h2 { font-size: 24px; font-weight: 700; color: var(--bright); margin-bottom: 28px; letter-spacing: -.01em; }
+    h3 { font-size: 15px; font-weight: 600; color: var(--bright); margin-bottom: 8px; }
+    p { margin-bottom: 14px; }
     p:last-child { margin-bottom: 0; }
 
-    /* ── concept ── */
-    .concept-quote {
-      border-left: 3px solid var(--accent);
-      padding: 16px 24px;
-      margin: 32px 0;
-      font-size: 18px;
-      color: var(--bright);
-      font-style: italic;
-    }
+    /* quote */
+    .concept-quote { border-left: 3px solid var(--accent); padding: 14px 22px; margin: 28px 0; font-size: 17px; color: var(--bright); font-style: italic; }
 
-    /* ── grid cards ── */
-    .grid { display: grid; gap: 16px; }
-    .grid-2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
-    .grid-3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 24px;
-    }
-    .card-icon {
-      font-size: 22px;
-      margin-bottom: 12px;
-      display: block;
-    }
-
-    /* ── flow ── */
-    .flow {
-      display: flex;
-      flex-direction: column;
-      gap: 0;
-    }
-    .flow-step {
-      display: flex;
-      gap: 20px;
-      align-items: flex-start;
-      padding: 20px 0;
-      border-bottom: 1px solid var(--border);
-    }
-    .flow-step:last-child { border-bottom: none; }
-    .step-num {
-      flex-shrink: 0;
-      width: 32px; height: 32px;
-      border-radius: 50%;
-      background: var(--border);
-      color: var(--accent);
-      font-size: 13px;
-      font-weight: 700;
-      display: flex; align-items: center; justify-content: center;
-      margin-top: 2px;
-    }
-
-    /* ── table ── */
-    .spec-table { width: 100%; border-collapse: collapse; }
-    .spec-table th, .spec-table td {
-      text-align: left;
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-      font-size: 14px;
-    }
-    .spec-table th { color: var(--muted); font-weight: 500; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
-    .spec-table td:first-child { color: var(--bright); font-weight: 500; white-space: nowrap; }
-    .spec-table tr:last-child td { border-bottom: none; }
-
-    /* ── server badges ── */
-    .server-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-    .server-tag {
-      font-size: 12px; font-weight: 600; letter-spacing: .05em;
-      padding: 4px 12px; border-radius: 4px;
-      border: 1px solid var(--border);
-      color: var(--text);
-    }
-
-    /* ── protocol ── */
-    .proto-box {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 20px 24px;
-      font-family: "SF Mono", "Fira Code", monospace;
-      font-size: 13px;
-      line-height: 1.7;
-      overflow-x: auto;
-    }
-    .proto-key   { color: #7aa2f7; }
-    .proto-str   { color: #9ece6a; }
-    .proto-num   { color: #ff9e64; }
-    .proto-comment { color: var(--muted); }
-
-    /* ── vs box ── */
-    .vs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .vs-col { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px 24px; }
-    .vs-col h4 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 16px; }
-    .vs-col.bad  h4 { color: var(--danger); }
-    .vs-col.good h4 { color: var(--accent2); }
+    /* vs */
+    .vs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 32px; }
+    .vs-col { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+    .vs-col h4 { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 14px; }
+    .vs-col.bad  h4 { color: var(--red); }
+    .vs-col.good h4 { color: var(--green); }
     .vs-col ul { list-style: none; }
     .vs-col ul li { font-size: 14px; padding: 5px 0; border-bottom: 1px solid var(--border); }
     .vs-col ul li:last-child { border-bottom: none; }
-    .vs-col.bad  ul li::before { content: "✗  "; color: var(--danger); }
-    .vs-col.good ul li::before { content: "✓  "; color: var(--accent2); }
+    .vs-col.bad  li::before { content: "✗  "; color: var(--red); }
+    .vs-col.good li::before { content: "✓  "; color: var(--green); }
 
-    /* ── footer ── */
-    footer {
-      border-top: 1px solid var(--border);
-      padding: 32px 0;
-      text-align: center;
-      font-size: 13px;
-      color: var(--muted);
-    }
+    /* flow */
+    .flow-step { display: flex; gap: 18px; align-items: flex-start; padding: 18px 0; border-bottom: 1px solid var(--border); }
+    .flow-step:last-child { border-bottom: none; }
+    .step-num { flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; background: var(--border); color: var(--accent); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
+    .flow-step ul { margin: 10px 0 0 18px; font-size: 14px; }
+    .flow-step ul li { margin-bottom: 5px; }
+
+    /* server tags */
+    .server-grid { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+    .server-tag { font-size: 12px; font-weight: 600; letter-spacing: .04em; padding: 3px 11px; border-radius: 4px; border: 1px solid var(--border); color: var(--text); }
+
+    /* cards */
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 22px; }
+    .card-icon { font-size: 20px; margin-bottom: 10px; display: block; }
+
+    /* proto */
+    .proto-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 18px 22px; font-family: "SF Mono","Fira Code",monospace; font-size: 13px; line-height: 1.75; overflow-x: auto; }
+    .pk { color: #7aa2f7; } .ps { color: #9ece6a; } .pn { color: #ff9e64; } .pc { color: var(--muted); }
+
+    /* table */
+    .spec-table { width: 100%; border-collapse: collapse; }
+    .spec-table th, .spec-table td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: 14px; }
+    .spec-table th { color: var(--muted); font-weight: 500; font-size: 11px; letter-spacing: .07em; text-transform: uppercase; }
+    .spec-table td:first-child { color: var(--bright); font-weight: 500; white-space: nowrap; }
+    .spec-table tr:last-child td { border-bottom: none; }
+
+    /* footer */
+    footer { border-top: 1px solid var(--border); padding: 28px 0; text-align: center; font-size: 13px; color: var(--muted); }
+    footer a { color: var(--accent); text-decoration: none; }
 
     @media (max-width: 600px) {
       .vs-grid { grid-template-columns: 1fr; }
-      .hero { padding: 64px 0 56px; }
+      .hero { padding: 60px 0 50px; }
     }
   </style>
 </head>
 <body>
 
-<!-- nav -->
 <nav>
   <div class="wrap">
     <span class="logo">auth-monitor</span>
     <span class="badge">v5</span>
+    <span class="lang-spacer"></span>
+    <div class="lang-switch">
+      <button class="lang-btn active" onclick="setLang('pt')">PT</button>
+      <button class="lang-btn"        onclick="setLang('en')">EN</button>
+      <button class="lang-btn"        onclick="setLang('es')">ES</button>
+    </div>
   </div>
 </nav>
 
-<!-- hero -->
+<!-- HERO -->
 <div class="hero">
   <div class="wrap">
-
     <div class="hero-diagram">
       <svg viewBox="0 0 560 280" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <!-- grid lines -->
         <defs>
           <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="#e4f222" stop-opacity=".18"/>
+            <stop offset="0%" stop-color="#e4f222" stop-opacity=".16"/>
             <stop offset="100%" stop-color="#e4f222" stop-opacity="0"/>
           </radialGradient>
         </defs>
-
-        <!-- glow behind broker -->
         <circle cx="280" cy="140" r="90" fill="url(#glow)"/>
-
-        <!-- orbit rings -->
         <circle cx="280" cy="140" r="110" stroke="#1e2025" stroke-width="1" fill="none" stroke-dasharray="3 7"/>
         <circle cx="280" cy="140" r="70"  stroke="#1e2025" stroke-width="1" fill="none"/>
-
-        <!-- spoke lines -->
         <g stroke="#2a2d33" stroke-width="1.2">
           <line x1="280" y1="140" x2="140" y2="52"/>
           <line x1="280" y1="140" x2="420" y2="52"/>
@@ -267,21 +144,12 @@
           <line x1="280" y1="140" x2="420" y2="228"/>
           <line x1="280" y1="140" x2="280" y2="30"/>
         </g>
-
-        <!-- animated pulse on one spoke -->
         <line x1="280" y1="140" x2="78" y2="175" stroke="#e4f222" stroke-width="1.5" stroke-dasharray="4 80" opacity=".7">
           <animate attributeName="stroke-dashoffset" from="0" to="-84" dur="1.8s" repeatCount="indefinite"/>
         </line>
         <line x1="420" y1="228" x2="280" y2="140" stroke="#4af0b8" stroke-width="1.5" stroke-dasharray="4 80" opacity=".6">
           <animate attributeName="stroke-dashoffset" from="-84" to="0" dur="2.1s" repeatCount="indefinite"/>
         </line>
-
-        <!-- broker (centre) -->
-        <circle cx="280" cy="140" r="28" fill="#0f1012" stroke="#e4f222" stroke-width="1.5"/>
-        <text x="280" y="136" text-anchor="middle" fill="#e4f222" font-size="9" font-family="monospace" font-weight="700">BROKER</text>
-        <text x="280" y="149" text-anchor="middle" fill="#a0a210" font-size="7.5" font-family="monospace">:8883 TLS</text>
-
-        <!-- nodes -->
         <g fill="#0f1012" stroke="#3a3d44" stroke-width="1.2">
           <circle cx="140" cy="52"  r="18"/>
           <circle cx="420" cy="52"  r="18"/>
@@ -291,247 +159,378 @@
           <circle cx="420" cy="228" r="18"/>
           <circle cx="280" cy="30"  r="18"/>
         </g>
-        <!-- node labels -->
         <g fill="#6b7280" font-size="8.5" font-family="monospace" text-anchor="middle">
-          <text x="140" y="55">nó A</text>
-          <text x="420" y="55">nó B</text>
-          <text x="78"  y="178">nó C</text>
-          <text x="482" y="178">nó D</text>
-          <text x="140" y="231">nó E</text>
-          <text x="420" y="231">nó F</text>
+          <text x="140" y="55">node A</text>
+          <text x="420" y="55">node B</text>
+          <text x="78"  y="178">node C</text>
+          <text x="482" y="178">node D</text>
+          <text x="140" y="231">node E</text>
+          <text x="420" y="231">node F</text>
           <text x="280" y="33">API</text>
         </g>
-        <!-- highlight one blocked node -->
-        <circle cx="78" cy="175" r="18" fill="none" stroke="#e4f222" stroke-width="1.5" opacity=".9"/>
+        <circle cx="280" cy="140" r="28" fill="#0f1012" stroke="#e4f222" stroke-width="1.5"/>
+        <text x="280" y="136" text-anchor="middle" fill="#e4f222" font-size="9" font-family="monospace" font-weight="700">BROKER</text>
+        <text x="280" y="149" text-anchor="middle" fill="#a0a210" font-size="7.5" font-family="monospace">:8883 TLS</text>
+        <circle cx="78"  cy="175" r="18" fill="none" stroke="#e4f222" stroke-width="1.5" opacity=".9"/>
         <circle cx="420" cy="228" r="18" fill="none" stroke="#4af0b8" stroke-width="1.2" opacity=".7"/>
       </svg>
     </div>
-
-    <h1>Um ataque contra um nó<br>é um ataque contra <em>toda a rede</em></h1>
-    <p class="subtitle">
-      auth-monitor v5 distribui inteligência de ameaças entre servidores em tempo real —
-      quando qualquer nó detecta um IP malicioso, todos os outros bloqueiam antes de receber a primeira requisição.
-    </p>
+    <h1 data-i18n="hero_h1"></h1>
+    <p class="subtitle" data-i18n="hero_sub"></p>
     <div class="cta-row">
-      <a class="btn btn-primary" href="https://github.com/EDortta/nw-firewall">Ver no GitHub</a>
-      <a class="btn btn-ghost" href="#como-funciona">Como funciona</a>
+      <a class="btn btn-primary" href="https://github.com/EDortta/nw-firewall" data-i18n="cta_github"></a>
+      <a class="btn btn-ghost" href="#how-it-works" data-i18n="cta_how"></a>
     </div>
-
   </div>
 </div>
 
-<!-- o problema -->
+<!-- PROBLEM -->
 <section>
   <div class="wrap">
-    <h2>O problema que resolve</h2>
-    <p>
-      Firewalls tradicionais protegem servidores individualmente. Um scanner inteligente não satura um único endpoint — ele rotaciona entre dezenas de alvos, colhendo informações abaixo de qualquer limiar individual de alerta. Cada servidor vê apenas uma fração do comportamento malicioso.
-    </p>
-    <div class="concept-quote">
-      "Alguém na rede já viu esse IP se comportar mal?"
-    </div>
-    <p>
-      auth-monitor elimina esse ponto cego ao compartilhar inteligência de ameaças entre todos os nós em segundos. Um bloqueio em qualquer servidor propaga-se imediatamente para toda a infraestrutura — antes que o atacante tente o próximo alvo.
-    </p>
-
-    <div class="vs-grid" style="margin-top:36px">
+    <h2 data-i18n="prob_h2"></h2>
+    <p data-i18n="prob_p1"></p>
+    <div class="concept-quote" data-i18n="prob_quote"></div>
+    <p data-i18n="prob_p2"></p>
+    <div class="vs-grid">
       <div class="vs-col bad">
-        <h4>Defesa isolada</h4>
+        <h4 data-i18n="vs_bad_h"></h4>
         <ul>
-          <li>Cada servidor decide sozinho</li>
-          <li>Scanner rotaciona entre alvos</li>
-          <li>Padrão fragmentado não é detectado</li>
-          <li>Janela de exposição entre nós</li>
+          <li data-i18n="vs_bad_1"></li>
+          <li data-i18n="vs_bad_2"></li>
+          <li data-i18n="vs_bad_3"></li>
+          <li data-i18n="vs_bad_4"></li>
         </ul>
       </div>
       <div class="vs-col good">
-        <h4>Defesa coletiva</h4>
+        <h4 data-i18n="vs_good_h"></h4>
         <ul>
-          <li>Detecção compartilhada em tempo real</li>
-          <li>Bloqueio simultâneo em toda a rede</li>
-          <li>Padrões distribuídos são correlacionados</li>
-          <li>Sem janela entre detecção e proteção</li>
+          <li data-i18n="vs_good_1"></li>
+          <li data-i18n="vs_good_2"></li>
+          <li data-i18n="vs_good_3"></li>
+          <li data-i18n="vs_good_4"></li>
         </ul>
       </div>
     </div>
   </div>
 </section>
 
-<!-- como funciona -->
-<section id="como-funciona">
+<!-- HOW IT WORKS -->
+<section id="how-it-works">
   <div class="wrap">
-    <h2>Como funciona</h2>
-    <div class="flow">
+    <h2 data-i18n="how_h2"></h2>
 
-      <div class="flow-step">
-        <div class="step-num">1</div>
-        <div>
-          <h3>Detecção em camadas</h3>
-          <p>
-            O detector roda como oneshot (systemd timer, 1 min) e analisa apenas as linhas novas dos logs — nunca re-lê o arquivo inteiro. Três camadas de decisão:
-          </p>
-          <ul style="margin-left:20px; margin-top:8px; font-size:14px; color:var(--text)">
-            <li style="margin-bottom:6px"><strong style="color:var(--bright)">Bloqueio imediato</strong> — qualquer requisição a caminhos zero-tolerância (<code>.env</code>, <code>.git/config</code>, <code>wp-config.php</code>, exploits conhecidos) aciona o bloqueio sem acumulação de pontos.</li>
-            <li style="margin-bottom:6px"><strong style="color:var(--bright)">Janelas deslizantes</strong> — bursts de HTTP 404, falhas SSH, probing de caminhos de alto risco. Cada sinal tem peso e janela temporal persistida em SQLite.</li>
-            <li><strong style="color:var(--bright)">Assinatura de scanners</strong> — user-agents conhecidos (Shodan, Zgrab, Masscan, Nuclei…) e path traversal identificados diretamente.</li>
-          </ul>
-          <div class="server-grid">
-            <span class="server-tag">nginx</span>
-            <span class="server-tag">apache2</span>
-            <span class="server-tag">lighttpd</span>
-            <span class="server-tag">caddy</span>
-            <span class="server-tag">traefik</span>
-            <span class="server-tag">haproxy</span>
-            <span class="server-tag">auth.log / sshd</span>
-          </div>
+    <div class="flow-step">
+      <div class="step-num">1</div>
+      <div>
+        <h3 data-i18n="how1_h"></h3>
+        <p data-i18n="how1_p"></p>
+        <ul>
+          <li data-i18n="how1_l1"></li>
+          <li data-i18n="how1_l2"></li>
+          <li data-i18n="how1_l3"></li>
+        </ul>
+        <div class="server-grid">
+          <span class="server-tag">nginx</span>
+          <span class="server-tag">apache2</span>
+          <span class="server-tag">lighttpd</span>
+          <span class="server-tag">caddy</span>
+          <span class="server-tag">traefik</span>
+          <span class="server-tag">haproxy</span>
+          <span class="server-tag">auth.log / sshd</span>
         </div>
       </div>
+    </div>
 
-      <div class="flow-step">
-        <div class="step-num">2</div>
-        <div>
-          <h3>Aplicação local primeiro</h3>
-          <p>
-            O agente lê o outbox (SQLite WAL) e aplica o bloqueio no kernel via <strong>ipset</strong> antes de publicar qualquer evento na rede. Um nó sem conectividade MQTT continua protegendo-se. Ao reiniciar, reconcilia automaticamente o ipset com o estado do banco.
-          </p>
-        </div>
+    <div class="flow-step">
+      <div class="step-num">2</div>
+      <div>
+        <h3 data-i18n="how2_h"></h3>
+        <p data-i18n="how2_p"></p>
       </div>
+    </div>
 
-      <div class="flow-step">
-        <div class="step-num">3</div>
-        <div>
-          <h3>Propagação criptograficamente verificada</h3>
-          <p>
-            O evento é publicado via MQTT (TLS, QoS 1) com assinatura HMAC-SHA256 canônica. Cada receptor valida, nesta ordem: assinatura → frescor (±300 s) → anti-replay (event_id único) → Guard de IP (nunca bloqueia privado, self ou broker). Só então aplica o bloqueio.
-          </p>
-        </div>
+    <div class="flow-step">
+      <div class="step-num">3</div>
+      <div>
+        <h3 data-i18n="how3_h"></h3>
+        <p data-i18n="how3_p"></p>
       </div>
+    </div>
 
-      <div class="flow-step">
-        <div class="step-num">4</div>
-        <div>
-          <h3>Toda a rede reage em segundos</h3>
-          <p>
-            Todos os outros nós recebem, verificam e bloqueiam o IP via ipset antes que o atacante faça a próxima requisição. O bloqueio tem TTL configurável — o kernel expira automaticamente, sem cron ou processo extra.
-          </p>
-        </div>
+    <div class="flow-step">
+      <div class="step-num">4</div>
+      <div>
+        <h3 data-i18n="how4_h"></h3>
+        <p data-i18n="how4_p"></p>
       </div>
-
     </div>
   </div>
 </section>
 
-<!-- protocolo -->
+<!-- PROTOCOL -->
 <section>
   <div class="wrap">
-    <h2>Protocolo de eventos</h2>
-    <p style="margin-bottom:20px">
-      Cada evento publicado no grid tem estrutura versionada e assinatura que cobre todos os campos (chaves ordenadas, sem espaços — replay de um campo modificado invalida a assinatura).
-    </p>
+    <h2 data-i18n="proto_h2"></h2>
+    <p data-i18n="proto_p" style="margin-bottom:18px"></p>
     <div class="proto-box">
       {<br>
-      &nbsp;&nbsp;<span class="proto-key">"v"</span>:         <span class="proto-num">5</span>,                          <span class="proto-comment">// versão do protocolo</span><br>
-      &nbsp;&nbsp;<span class="proto-key">"event"</span>:     <span class="proto-str">"block"</span>,                  <span class="proto-comment">// block | unblock | heartbeat | sync_state</span><br>
-      &nbsp;&nbsp;<span class="proto-key">"event_id"</span>:  <span class="proto-str">"uuid4"</span>,                  <span class="proto-comment">// anti-replay: descartado se já visto</span><br>
-      &nbsp;&nbsp;<span class="proto-key">"ts"</span>:         <span class="proto-str">"2026-06-11T05:37:00Z"</span>,  <span class="proto-comment">// rejeitado se &gt; ±300 s do receptor</span><br>
-      &nbsp;&nbsp;<span class="proto-key">"node"</span>:       <span class="proto-str">"web-prod-01"</span>,           <span class="proto-comment">// emissor</span><br>
-      &nbsp;&nbsp;<span class="proto-key">"ip"</span>:         <span class="proto-str">"1.2.3.4"</span>,<br>
-      &nbsp;&nbsp;<span class="proto-key">"reason"</span>:    <span class="proto-str">"ssh_auth_fail_burst"</span>,<br>
-      &nbsp;&nbsp;<span class="proto-key">"ttl"</span>:        <span class="proto-num">604800</span>,<br>
-      &nbsp;&nbsp;<span class="proto-key">"sig"</span>:        <span class="proto-str">"base64(HMAC-SHA256(canonical_json))"</span><br>
+      &nbsp;&nbsp;<span class="pk">"v"</span>:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="pn">5</span>,<span class="pc">  // protocol version</span><br>
+      &nbsp;&nbsp;<span class="pk">"event"</span>:&nbsp;&nbsp;&nbsp;&nbsp; <span class="ps">"block"</span>,<span class="pc">  // block | unblock | heartbeat | sync_state</span><br>
+      &nbsp;&nbsp;<span class="pk">"event_id"</span>:  <span class="ps">"uuid4"</span>,<span class="pc">  // anti-replay — discarded if already seen</span><br>
+      &nbsp;&nbsp;<span class="pk">"ts"</span>:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="ps">"2026-06-11T05:37:00Z"</span>,<span class="pc">  // rejected if &gt; ±300 s from receiver</span><br>
+      &nbsp;&nbsp;<span class="pk">"node"</span>:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="ps">"web-prod-01"</span>,<span class="pc">  // emitter</span><br>
+      &nbsp;&nbsp;<span class="pk">"ip"</span>:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="ps">"1.2.3.4"</span>,<br>
+      &nbsp;&nbsp;<span class="pk">"reason"</span>:&nbsp;&nbsp;&nbsp; <span class="ps">"ssh_auth_fail_burst"</span>,<br>
+      &nbsp;&nbsp;<span class="pk">"ttl"</span>:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="pn">604800</span>,<br>
+      &nbsp;&nbsp;<span class="pk">"sig"</span>:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="ps">"base64(HMAC-SHA256(canonical_json))"</span><br>
       }
     </div>
   </div>
 </section>
 
-<!-- segurança v5 -->
+<!-- V5 FEATURES -->
 <section>
   <div class="wrap">
-    <h2>O que mudou na v5</h2>
-    <div class="grid grid-2">
-
-      <div class="card">
-        <span class="card-icon">🔐</span>
-        <h3>HMAC-SHA256 em todos os eventos</h3>
-        <p>Eventos sem assinatura válida são descartados silenciosamente. Suporta rotação de chave sem downtime (chave anterior aceita por janela configurável).</p>
-      </div>
-
-      <div class="card">
-        <span class="card-icon">🔁</span>
-        <h3>Anti-replay persistente</h3>
-        <p>Cada event_id é registrado em SQLite. Reenvio de um evento legítimo capturado não produz efeito — independente do TTL de frescor.</p>
-      </div>
-
-      <div class="card">
-        <span class="card-icon">🛡</span>
-        <h3>Guard de IP</h3>
-        <p>Antes de qualquer bloqueio: o IP é público? Está na allowlist? É o broker? É o próprio nó? Um evento forjado não auto-bloqueia a infraestrutura.</p>
-      </div>
-
-      <div class="card">
-        <span class="card-icon">🔒</span>
-        <h3>TLS no broker</h3>
-        <p>Mosquitto 2.x na porta 8883 com cert Let's Encrypt. Porta 1883 acessível apenas em localhost. Autenticação por usuário/senha por grupo de nós.</p>
-      </div>
-
-      <div class="card">
-        <span class="card-icon">⚡</span>
-        <h3>Local-first + reconciliação</h3>
-        <p>O agente aplica o bloqueio no kernel antes de publicar. No boot, reconcilia o ipset com o banco — reboots não abrem janela de exposição.</p>
-      </div>
-
-      <div class="card">
-        <span class="card-icon">🗄</span>
-        <h3>SQLite WAL + decisões auditáveis</h3>
-        <p>Toda ação (block, unblock, rate_limited, api_reject…) fica na tabela decisions com motivo e timestamp. Logtail por inode+offset, rotation-safe.</p>
-      </div>
-
-      <div class="card">
-        <span class="card-icon">🚫</span>
-        <h3>Segredos fora do config</h3>
-        <p>Se password, hmac_secret ou api_key aparecerem no config.json, o processo recusa inicializar. Segredos só via variáveis de ambiente.</p>
-      </div>
-
-      <div class="card">
-        <span class="card-icon">📊</span>
-        <h3>Rate limiter</h3>
-        <p>Janela deslizante de 30 bloqueios/min. Proteção contra mass-block acidental ou forjado — bursts de startup não propagam ruído para toda a rede.</p>
-      </div>
-
+    <h2 data-i18n="feat_h2"></h2>
+    <div class="grid-2">
+      <div class="card"><span class="card-icon">🔐</span><h3 data-i18n="f1_h"></h3><p data-i18n="f1_p"></p></div>
+      <div class="card"><span class="card-icon">🔁</span><h3 data-i18n="f2_h"></h3><p data-i18n="f2_p"></p></div>
+      <div class="card"><span class="card-icon">🛡</span><h3 data-i18n="f3_h"></h3><p data-i18n="f3_p"></p></div>
+      <div class="card"><span class="card-icon">🔒</span><h3 data-i18n="f4_h"></h3><p data-i18n="f4_p"></p></div>
+      <div class="card"><span class="card-icon">⚡</span><h3 data-i18n="f5_h"></h3><p data-i18n="f5_p"></p></div>
+      <div class="card"><span class="card-icon">🗄</span><h3 data-i18n="f6_h"></h3><p data-i18n="f6_p"></p></div>
+      <div class="card"><span class="card-icon">🚫</span><h3 data-i18n="f7_h"></h3><p data-i18n="f7_p"></p></div>
+      <div class="card"><span class="card-icon">📊</span><h3 data-i18n="f8_h"></h3><p data-i18n="f8_p"></p></div>
     </div>
   </div>
 </section>
 
-<!-- specs -->
+<!-- SPECS -->
 <section>
   <div class="wrap">
-    <h2>Especificações</h2>
+    <h2 data-i18n="spec_h2"></h2>
     <table class="spec-table">
-      <thead>
-        <tr><th>Componente</th><th>Detalhe</th></tr>
-      </thead>
-      <tbody>
-        <tr><td>Transporte</td><td>MQTT TLS 8883, QoS 1, sessão persistente — eventos entregues mesmo após reconexão</td></tr>
-        <tr><td>Assinatura</td><td>HMAC-SHA256, JSON canônico (chaves ordenadas, sem espaços), base64</td></tr>
-        <tr><td>Anti-replay</td><td>event_id (UUID4) + janela de frescor ±300 s, persistidos em SQLite</td></tr>
-        <tr><td>Firewall</td><td>ipset (TTL nativo no kernel, O(1)) com fallback para iptables</td></tr>
-        <tr><td>Detecção</td><td>nginx, apache2, lighttpd, caddy, traefik, haproxy, auth.log/sshd</td></tr>
-        <tr><td>Estado</td><td>SQLite WAL, busy_timeout 5 s, prune automático de sinais expirados</td></tr>
-        <tr><td>Operação</td><td>Detector oneshot (systemd timer 1 min) + agente daemon; sem cron</td></tr>
-        <tr><td>Control plane</td><td>REST API (FastAPI, Bearer token) no nó do broker — block/unblock/allowlist/status</td></tr>
-        <tr><td>Desktop</td><td>Notificador (notify-send, systemd --user) + monitor terminal interativo</td></tr>
-        <tr><td>Plataformas</td><td>Debian 11+, Ubuntu 20.04+ — Python 3.9+, Mosquitto 2.x</td></tr>
-      </tbody>
+      <thead><tr><th data-i18n="spec_col1"></th><th data-i18n="spec_col2"></th></tr></thead>
+      <tbody id="spec-tbody"></tbody>
     </table>
   </div>
 </section>
 
-<!-- footer -->
 <footer>
   <div class="wrap">
-    auth-monitor v5 — <a href="https://github.com/EDortta/nw-firewall" style="color:var(--accent);text-decoration:none">github.com/EDortta/nw-firewall</a>
+    auth-monitor v5 — <a href="https://github.com/EDortta/nw-firewall">github.com/EDortta/nw-firewall</a>
   </div>
 </footer>
 
+<script>
+const I18N = {
+  pt: {
+    hero_h1:    'Um ataque contra um nó<br>é um ataque contra <em>toda a rede</em>',
+    hero_sub:   'auth-monitor v5 distribui inteligência de ameaças entre servidores em tempo real — quando qualquer nó detecta um IP malicioso, todos os outros bloqueiam antes de receber a primeira requisição.',
+    cta_github: 'Ver no GitHub',
+    cta_how:    'Como funciona',
+    prob_h2:    'O problema que resolve',
+    prob_p1:    'Firewalls tradicionais protegem servidores individualmente. Um scanner inteligente não satura um único endpoint — ele rotaciona entre dezenas de alvos, colhendo informações abaixo de qualquer limiar individual de alerta. Cada servidor vê apenas uma fração do comportamento malicioso.',
+    prob_quote: '"Alguém na rede já viu esse IP se comportar mal?"',
+    prob_p2:    'auth-monitor elimina esse ponto cego ao compartilhar inteligência de ameaças entre todos os nós em segundos. Um bloqueio em qualquer servidor propaga-se imediatamente para toda a infraestrutura — antes que o atacante tente o próximo alvo.',
+    vs_bad_h:   'Defesa isolada',
+    vs_bad_1:   'Cada servidor decide sozinho',
+    vs_bad_2:   'Scanner rotaciona entre alvos',
+    vs_bad_3:   'Padrão fragmentado não é detectado',
+    vs_bad_4:   'Janela de exposição entre nós',
+    vs_good_h:  'Defesa coletiva',
+    vs_good_1:  'Detecção compartilhada em tempo real',
+    vs_good_2:  'Bloqueio simultâneo em toda a rede',
+    vs_good_3:  'Padrões distribuídos são correlacionados',
+    vs_good_4:  'Sem janela entre detecção e proteção',
+    how_h2:     'Como funciona',
+    how1_h:     'Detecção em camadas',
+    how1_p:     'O detector roda como oneshot (systemd timer, 1 min) e analisa apenas as linhas novas dos logs. Três camadas de decisão:',
+    how1_l1:    'Bloqueio imediato — caminhos zero-tolerância (.env, .git/config, wp-config.php, exploits conhecidos).',
+    how1_l2:    'Janelas deslizantes — bursts de HTTP 404, falhas SSH, probing de alto risco. Sinais persistidos em SQLite.',
+    how1_l3:    'Assinatura de scanners — user-agents conhecidos (Shodan, Zgrab, Masscan, Nuclei…) e path traversal.',
+    how2_h:     'Aplicação local primeiro',
+    how2_p:     'O agente aplica o bloqueio no kernel via ipset antes de publicar qualquer evento na rede. Um nó sem conectividade MQTT continua protegendo-se. Ao reiniciar, reconcilia automaticamente o ipset com o estado do banco.',
+    how3_h:     'Propagação criptograficamente verificada',
+    how3_p:     'O evento é publicado via MQTT (TLS, QoS 1) com assinatura HMAC-SHA256. Cada receptor valida: assinatura → frescor (±300 s) → anti-replay (event_id único) → Guard de IP (nunca bloqueia privado, self, broker ou peers da rede). Só então aplica o bloqueio.',
+    how4_h:     'Toda a rede reage em segundos',
+    how4_p:     'Todos os outros nós recebem, verificam e bloqueiam o IP via ipset. O bloqueio tem TTL configurável — o kernel expira automaticamente, sem cron ou processo extra.',
+    proto_h2:   'Protocolo de eventos',
+    proto_p:    'Cada evento publicado no grid tem estrutura versionada e assinatura que cobre todos os campos. Replay de um campo modificado invalida a assinatura.',
+    feat_h2:    'O que mudou na v5',
+    f1_h: 'HMAC-SHA256 em todos os eventos',       f1_p: 'Eventos sem assinatura válida são descartados. Suporta rotação de chave sem downtime.',
+    f2_h: 'Anti-replay persistente',                f2_p: 'Cada event_id é registrado em SQLite. Reenvio de um evento capturado não produz efeito.',
+    f3_h: 'Guard de IP',                            f3_p: 'Antes de qualquer bloqueio: público? allowlist? broker? self? peer da rede? Um evento forjado não auto-bloqueia a infraestrutura.',
+    f4_h: 'TLS no broker',                          f4_p: 'Mosquitto 2.x na porta 8883 com cert Let\'s Encrypt. Porta 1883 apenas em localhost.',
+    f5_h: 'Local-first + reconciliação',            f5_p: 'O agente aplica o bloqueio no kernel antes de publicar. No boot, reconcilia o ipset com o banco.',
+    f6_h: 'SQLite WAL + decisões auditáveis',       f6_p: 'Toda ação (block, unblock, rate_limited…) fica na tabela decisions. Logtail por inode+offset, rotation-safe.',
+    f7_h: 'Segredos fora do config',                f7_p: 'Se password ou hmac_secret aparecerem no config.json, o processo recusa inicializar. Segredos só via env vars.',
+    f8_h: 'Rate limiter',                           f8_p: 'Janela deslizante de 30 bloqueios/min. Proteção contra mass-block acidental ou forjado.',
+    spec_h2:   'Especificações',
+    spec_col1: 'Componente',
+    spec_col2: 'Detalhe',
+    spec_rows: [
+      ['Transporte',    'MQTT TLS 8883, QoS 1, sessão persistente'],
+      ['Assinatura',    'HMAC-SHA256, JSON canônico (chaves ordenadas), base64'],
+      ['Anti-replay',   'event_id (UUID4) + frescor ±300 s, persistidos em SQLite'],
+      ['Firewall',      'ipset com TTL nativo no kernel; fallback para iptables'],
+      ['Detecção',      'nginx, apache2, lighttpd, caddy, traefik, haproxy, auth.log/sshd'],
+      ['Estado',        'SQLite WAL, busy_timeout 5 s, prune automático'],
+      ['Operação',      'Detector oneshot (timer 1 min) + agente daemon'],
+      ['Control plane', 'REST API (FastAPI, Bearer) — block/unblock/allowlist/status'],
+      ['Desktop',       'Notificador notify-send (systemd --user) + monitor terminal'],
+      ['Plataformas',   'Debian 11+, Ubuntu 20.04+ — Python 3.9+, Mosquitto 2.x'],
+    ],
+  },
+
+  en: {
+    hero_h1:    'An attack on one node<br>is an attack on <em>the whole network</em>',
+    hero_sub:   'auth-monitor v5 distributes threat intelligence across servers in real time — when any node detects a malicious IP, all others block it before receiving the first request.',
+    cta_github: 'View on GitHub',
+    cta_how:    'How it works',
+    prob_h2:    'The problem it solves',
+    prob_p1:    'Traditional firewalls protect servers individually. A smart scanner never saturates a single endpoint — it rotates across dozens of targets, collecting information below any individual alert threshold. Each server sees only a fraction of the malicious behavior.',
+    prob_quote: '"Has anyone on the network already seen this IP behave badly?"',
+    prob_p2:    'auth-monitor eliminates this blind spot by sharing threat intelligence across all nodes within seconds. A block on any server propagates immediately to the entire infrastructure — before the attacker tries the next target.',
+    vs_bad_h:   'Isolated defense',
+    vs_bad_1:   'Each server decides alone',
+    vs_bad_2:   'Scanner rotates across targets',
+    vs_bad_3:   'Fragmented pattern goes undetected',
+    vs_bad_4:   'Exposure window between nodes',
+    vs_good_h:  'Collective defense',
+    vs_good_1:  'Real-time shared detection',
+    vs_good_2:  'Simultaneous block across the network',
+    vs_good_3:  'Distributed patterns are correlated',
+    vs_good_4:  'No window between detection and protection',
+    how_h2:     'How it works',
+    how1_h:     'Layered detection',
+    how1_p:     'The detector runs as a oneshot (systemd timer, 1 min) and reads only new log lines. Three decision layers:',
+    how1_l1:    'Immediate block — zero-tolerance paths (.env, .git/config, wp-config.php, known exploits).',
+    how1_l2:    'Sliding windows — HTTP 404 bursts, SSH failures, high-risk path probing. Signals persisted in SQLite.',
+    how1_l3:    'Scanner fingerprinting — known user-agents (Shodan, Zgrab, Masscan, Nuclei…) and path traversal.',
+    how2_h:     'Local-first enforcement',
+    how2_p:     'The agent applies the block to the kernel via ipset before publishing any event to the network. A node without MQTT connectivity keeps protecting itself. On restart, it reconciles the ipset with the database state.',
+    how3_h:     'Cryptographically verified propagation',
+    how3_p:     'Events are published over MQTT (TLS, QoS 1) with HMAC-SHA256 signatures. Each receiver validates: signature → freshness (±300 s) → anti-replay (unique event_id) → IP Guard (never blocks private, self, broker, or network peers). Only then is the block applied.',
+    how4_h:     'The whole network reacts in seconds',
+    how4_p:     'All other nodes receive, verify, and block the IP via ipset. Blocks have a configurable TTL — the kernel expires them automatically, no cron or extra process needed.',
+    proto_h2:   'Event protocol',
+    proto_p:    'Every event published on the grid has a versioned structure and a signature covering all fields. Replaying a modified event invalidates the signature.',
+    feat_h2:    "What's new in v5",
+    f1_h: 'HMAC-SHA256 on all events',           f1_p: 'Events without a valid signature are silently discarded. Supports key rotation without downtime.',
+    f2_h: 'Persistent anti-replay',               f2_p: 'Each event_id is recorded in SQLite. Replaying a captured event has no effect.',
+    f3_h: 'IP Guard',                             f3_p: 'Before any block: is it public? allowlisted? broker? self? network peer? A forged event cannot auto-block the infrastructure.',
+    f4_h: 'TLS on broker',                        f4_p: "Mosquitto 2.x on port 8883 with Let's Encrypt cert. Port 1883 localhost-only.",
+    f5_h: 'Local-first + reconciliation',         f5_p: 'The agent applies the kernel block before publishing. On boot, it reconciles ipset with the database.',
+    f6_h: 'SQLite WAL + auditable decisions',     f6_p: 'Every action (block, unblock, rate_limited…) is stored in the decisions table. Logtail by inode+offset, rotation-safe.',
+    f7_h: 'Secrets out of config',                f7_p: 'If password or hmac_secret appear in config.json, the process refuses to start. Secrets via env vars only.',
+    f8_h: 'Rate limiter',                         f8_p: 'Sliding window of 30 blocks/min. Protection against accidental or forged mass-block.',
+    spec_h2:   'Specifications',
+    spec_col1: 'Component',
+    spec_col2: 'Detail',
+    spec_rows: [
+      ['Transport',     'MQTT TLS 8883, QoS 1, persistent session'],
+      ['Signature',     'HMAC-SHA256, canonical JSON (sorted keys), base64'],
+      ['Anti-replay',   'event_id (UUID4) + freshness ±300 s, stored in SQLite'],
+      ['Firewall',      'ipset with native kernel TTL; iptables fallback'],
+      ['Detection',     'nginx, apache2, lighttpd, caddy, traefik, haproxy, auth.log/sshd'],
+      ['State',         'SQLite WAL, busy_timeout 5 s, auto-prune of expired signals'],
+      ['Operation',     'Oneshot detector (1-min timer) + daemon agent'],
+      ['Control plane', 'REST API (FastAPI, Bearer) — block/unblock/allowlist/status'],
+      ['Desktop',       'notify-send notifier (systemd --user) + terminal monitor'],
+      ['Platforms',     'Debian 11+, Ubuntu 20.04+ — Python 3.9+, Mosquitto 2.x'],
+    ],
+  },
+
+  es: {
+    hero_h1:    'Un ataque a un nodo<br>es un ataque a <em>toda la red</em>',
+    hero_sub:   'auth-monitor v5 distribuye inteligencia de amenazas entre servidores en tiempo real — cuando cualquier nodo detecta una IP maliciosa, todos los demás la bloquean antes de recibir la primera solicitud.',
+    cta_github: 'Ver en GitHub',
+    cta_how:    'Cómo funciona',
+    prob_h2:    'El problema que resuelve',
+    prob_p1:    'Los firewalls tradicionales protegen servidores de forma individual. Un escáner inteligente no satura un único endpoint — rota entre decenas de objetivos, recopilando información por debajo de cualquier umbral individual de alerta. Cada servidor ve solo una fracción del comportamiento malicioso.',
+    prob_quote: '"¿Alguien en la red ya ha visto a esta IP comportarse mal?"',
+    prob_p2:    'auth-monitor elimina ese punto ciego compartiendo inteligencia de amenazas entre todos los nodos en segundos. Un bloqueo en cualquier servidor se propaga inmediatamente a toda la infraestructura — antes de que el atacante intente el siguiente objetivo.',
+    vs_bad_h:   'Defensa aislada',
+    vs_bad_1:   'Cada servidor decide por sí solo',
+    vs_bad_2:   'El escáner rota entre objetivos',
+    vs_bad_3:   'Patrón fragmentado no se detecta',
+    vs_bad_4:   'Ventana de exposición entre nodos',
+    vs_good_h:  'Defensa colectiva',
+    vs_good_1:  'Detección compartida en tiempo real',
+    vs_good_2:  'Bloqueo simultáneo en toda la red',
+    vs_good_3:  'Patrones distribuidos son correlacionados',
+    vs_good_4:  'Sin ventana entre detección y protección',
+    how_h2:     'Cómo funciona',
+    how1_h:     'Detección en capas',
+    how1_p:     'El detector se ejecuta como oneshot (systemd timer, 1 min) y analiza solo las líneas nuevas de los registros. Tres capas de decisión:',
+    how1_l1:    'Bloqueo inmediato — rutas de tolerancia cero (.env, .git/config, wp-config.php, exploits conocidos).',
+    how1_l2:    'Ventanas deslizantes — ráfagas de HTTP 404, fallos SSH, sondeo de rutas de alto riesgo. Señales persistidas en SQLite.',
+    how1_l3:    'Huella de escáneres — user-agents conocidos (Shodan, Zgrab, Masscan, Nuclei…) y path traversal.',
+    how2_h:     'Aplicación local primero',
+    how2_p:     'El agente aplica el bloqueo en el kernel vía ipset antes de publicar cualquier evento en la red. Un nodo sin conectividad MQTT sigue protegiéndose. Al reiniciar, reconcilia automáticamente el ipset con el estado de la base de datos.',
+    how3_h:     'Propagación verificada criptográficamente',
+    how3_p:     'Los eventos se publican vía MQTT (TLS, QoS 1) con firma HMAC-SHA256. Cada receptor valida: firma → frescura (±300 s) → anti-replay (event_id único) → Guard de IP (nunca bloquea privado, self, broker o peers de la red). Solo entonces aplica el bloqueo.',
+    how4_h:     'Toda la red reacciona en segundos',
+    how4_p:     'Todos los demás nodos reciben, verifican y bloquean la IP vía ipset. Los bloqueos tienen un TTL configurable — el kernel los expira automáticamente, sin cron ni proceso extra.',
+    proto_h2:   'Protocolo de eventos',
+    proto_p:    'Cada evento publicado en la red tiene una estructura versionada y una firma que cubre todos los campos. Reproducir un evento modificado invalida la firma.',
+    feat_h2:    'Novedades en v5',
+    f1_h: 'HMAC-SHA256 en todos los eventos',     f1_p: 'Eventos sin firma válida se descartan silenciosamente. Soporta rotación de clave sin downtime.',
+    f2_h: 'Anti-replay persistente',               f2_p: 'Cada event_id se registra en SQLite. Reproducir un evento capturado no tiene efecto.',
+    f3_h: 'Guard de IP',                           f3_p: '¿Es pública? ¿En allowlist? ¿Es el broker? ¿El propio nodo? ¿Un peer de la red? Un evento falsificado no puede bloquear la infraestructura.',
+    f4_h: 'TLS en el broker',                      f4_p: "Mosquitto 2.x en el puerto 8883 con cert Let's Encrypt. Puerto 1883 solo en localhost.",
+    f5_h: 'Local-first + reconciliación',          f5_p: 'El agente aplica el bloqueo en el kernel antes de publicar. Al iniciar, reconcilia el ipset con la base de datos.',
+    f6_h: 'SQLite WAL + decisiones auditables',    f6_p: 'Toda acción (block, unblock, rate_limited…) queda en la tabla decisions. Logtail por inode+offset, rotation-safe.',
+    f7_h: 'Secretos fuera de la configuración',    f7_p: 'Si password o hmac_secret aparecen en config.json, el proceso se niega a iniciar. Secretos solo vía env vars.',
+    f8_h: 'Rate limiter',                          f8_p: 'Ventana deslizante de 30 bloqueos/min. Protección contra mass-block accidental o falsificado.',
+    spec_h2:   'Especificaciones',
+    spec_col1: 'Componente',
+    spec_col2: 'Detalle',
+    spec_rows: [
+      ['Transporte',    'MQTT TLS 8883, QoS 1, sesión persistente'],
+      ['Firma',         'HMAC-SHA256, JSON canónico (claves ordenadas), base64'],
+      ['Anti-replay',   'event_id (UUID4) + frescura ±300 s, almacenado en SQLite'],
+      ['Firewall',      'ipset con TTL nativo en el kernel; fallback a iptables'],
+      ['Detección',     'nginx, apache2, lighttpd, caddy, traefik, haproxy, auth.log/sshd'],
+      ['Estado',        'SQLite WAL, busy_timeout 5 s, poda automática de señales'],
+      ['Operación',     'Detector oneshot (timer 1 min) + agente daemon'],
+      ['Control plane', 'REST API (FastAPI, Bearer) — block/unblock/allowlist/status'],
+      ['Desktop',       'Notificador notify-send (systemd --user) + monitor terminal'],
+      ['Plataformas',   'Debian 11+, Ubuntu 20.04+ — Python 3.9+, Mosquitto 2.x'],
+    ],
+  },
+};
+
+let currentLang = 'pt';
+
+function setLang(lang) {
+  currentLang = lang;
+  const t = I18N[lang];
+
+  // update lang attr
+  document.documentElement.lang = lang === 'pt' ? 'pt-BR' : lang;
+
+  // button states
+  document.querySelectorAll('.lang-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.textContent.toLowerCase() === lang);
+  });
+
+  // text nodes
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.dataset.i18n;
+    if (key in t) el.innerHTML = t[key];
+  });
+
+  // spec table rows
+  const tbody = document.getElementById('spec-tbody');
+  tbody.innerHTML = t.spec_rows.map(([k, v]) =>
+    `<tr><td>${k}</td><td>${v}</td></tr>`
+  ).join('');
+}
+
+// init
+setLang('pt');
+</script>
 </body>
 </html>

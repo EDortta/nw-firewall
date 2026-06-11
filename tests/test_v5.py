@@ -102,9 +102,19 @@ def test_guard_denies_allowlist_protected_and_never_block():
     )
     assert guard.check("9.9.9.7") == (False, "allowlisted")
     assert guard.check("8.8.4.4") == (False, "never_block_list")
-    assert guard.check("1.1.1.1") == (False, "protected_self_or_broker")
+    assert guard.check("1.1.1.1") == (False, "protected_self_broker_or_peer")
     assert guard.check("10.0.0.1") == (False, "non_public_address")
     assert guard.check("not-an-ip") == (False, "invalid_ip")
+    assert guard.check("45.83.20.9") == (True, "ok")
+
+
+def test_guard_peers_never_blocked():
+    # Peer IPs are added to protected_ips at Guard.build() time via resolve_host_ips.
+    # Here we inject them directly to test the check() logic in isolation.
+    peer_a, peer_b = "5.9.10.202", "5.9.10.203"
+    guard = Guard(allowlist=[], never_block=[], protected_ips={peer_a, peer_b})
+    assert guard.check(peer_a) == (False, "protected_self_broker_or_peer")
+    assert guard.check(peer_b) == (False, "protected_self_broker_or_peer")
     assert guard.check("45.83.20.9") == (True, "ok")
 
 

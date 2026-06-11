@@ -108,6 +108,9 @@ class Guard:
         enf = cfg["enforcement"]
         broker_host = str(cfg["mqtt"]["host"])
         protected = resolve_self_ips(broker_host) | resolve_host_ips(broker_host)
+        # Resolve peer node IPs — grid members must never be blocked by each other.
+        for peer in enf.get("peers", []):
+            protected |= resolve_host_ips(str(peer))
         return cls(
             allowlist=list(enf.get("allowlist", [])) + list(extra_allowlist or []),
             never_block=list(enf.get("never_block", [])),
@@ -125,7 +128,7 @@ class Guard:
         if not is_public_unicast(normalized):
             return False, "non_public_address"
         if normalized in self.protected_ips:
-            return False, "protected_self_or_broker"
+            return False, "protected_self_broker_or_peer"
         if _in_networks(normalized, self.never_nets):
             return False, "never_block_list"
         if self.is_allowlisted(normalized):
