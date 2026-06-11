@@ -27,7 +27,8 @@
     "max_sync_entries": 2000,
     "never_block": [],
     "allowlist": [],
-    "peers": []
+    "peers": [],
+    "peer_ip_retention_seconds": 86400
   },
   "detection": {
     "nginx_access_logs": ["/var/log/nginx/access.log"],

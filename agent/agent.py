@@ -33,7 +33,7 @@ from authmon.events import (
     validate_incoming,
 )
 from authmon.firewall import Firewall
-from authmon.ipguard import Guard, normalize_ip
+from authmon.ipguard import Guard, normalize_ip, resolve_primary_ip
 from authmon.mqttbus import MqttBus
 
 
@@ -48,7 +48,8 @@ class Agent:
         self.conn = state.connect(cfg["state"]["db_path"])
         self.db_lock = threading.Lock()
         self.secrets = load_hmac_secrets(cfg)
-        self.guard = Guard.build(cfg, extra_allowlist=state.allowlist_ips(self.conn))
+        self.retain_seconds = int(cfg["enforcement"].get("peer_ip_retention_seconds", 86400))
+        self.guard = self._build_guard()
         self.firewall = Firewall(cfg)
         enf = cfg["enforcement"]
         self.default_ttl = int(enf["default_ttl_seconds"])
@@ -63,6 +64,50 @@ class Agent:
             hmac_secret=self.secrets[0],
             on_event=self.handle_event,
         )
+
+    # -- guard rebuild ---------------------------------------------------
+
+    def _build_guard(self) -> Guard:
+        with self.db_lock:
+            extra_al = state.allowlist_ips(self.conn)
+            extra_protected = state.peer_ip_protected_set(self.conn)
+        return Guard.build(self.cfg, extra_allowlist=extra_al, extra_protected=extra_protected)
+
+    # -- own IP tracking -------------------------------------------------
+
+    def _check_own_ip(self) -> None:
+        """Detect own IP changes and announce them to the grid."""
+        broker_host = str(self.cfg["mqtt"]["host"])
+        current_ip = resolve_primary_ip(broker_host)
+        if not current_ip:
+            return
+        with self.db_lock:
+            stored_ip = state.peer_ip_get_active(self.conn, self.node_id)
+        if stored_ip is None:
+            # First run — register without announcing (no "old" IP to retire).
+            with self.db_lock:
+                state.peer_ip_upsert(self.conn, self.node_id, current_ip)
+            self.guard = self._build_guard()
+            log(f"peer_ip registered node={self.node_id} ip={current_ip}")
+            return
+        if stored_ip == current_ip:
+            return
+        # IP changed — announce to the grid, retire old.
+        log(f"peer_ip changed node={self.node_id} old={stored_ip} new={current_ip}")
+        with self.db_lock:
+            state.peer_ip_upsert(self.conn, self.node_id, current_ip, "active")
+            state.peer_ip_retire(self.conn, stored_ip, self.retain_seconds)
+        self.guard = self._build_guard()
+        event = make_event(
+            "ip_change", self.node_id,
+            old_ip=stored_ip, new_ip=current_ip,
+            retain_seconds=self.retain_seconds,
+        )
+        with self.db_lock:
+            state.mark_seen(self.conn, event["event_id"])
+        err = self.bus.publish_signed(event)
+        if err:
+            log(f"warn: ip_change publish failed: {err}", err=True)
 
     # -- enforcement core ------------------------------------------------
 
@@ -103,6 +148,25 @@ class Agent:
         log(f"unblock ip={ip} source={source}")
         return "ok"
 
+    # -- ip_change -------------------------------------------------------
+
+    def _handle_ip_change(self, payload: dict) -> None:
+        node   = str(payload.get("node", "unknown")).strip()
+        old_ip = normalize_ip(str(payload.get("old_ip", "")))
+        new_ip = normalize_ip(str(payload.get("new_ip", "")))
+        retain = int(payload.get("retain_seconds", self.retain_seconds))
+
+        if new_ip:
+            with self.db_lock:
+                state.peer_ip_upsert(self.conn, node, new_ip, "active")
+                # If this IP was retiring (transferred from another node), cancel that.
+                state.peer_ip_cancel_retirement(self.conn, new_ip)
+        if old_ip and old_ip != new_ip:
+            with self.db_lock:
+                state.peer_ip_retire(self.conn, old_ip, retain)
+        self.guard = self._build_guard()
+        log(f"ip_change node={node} old={old_ip} new={new_ip} retain={retain}s")
+
     # -- incoming events ---------------------------------------------------
 
     def handle_event(self, payload: dict) -> None:
@@ -127,6 +191,9 @@ class Agent:
         if event_type == "heartbeat":
             log(f"heartbeat node={payload.get('node')} blocks={payload.get('active_blocks', '?')}")
             return
+        if event_type == "ip_change":
+            self._handle_ip_change(payload)
+            return
         if event_type == "node_offline":
             log(f"warn: node offline: {payload.get('node')}", err=True)
             return
@@ -146,7 +213,7 @@ class Agent:
             if ip:
                 with self.db_lock:
                     state.allowlist_add(self.conn, ip, str(payload.get("reason", "")))
-                self.guard = Guard.build(self.cfg, extra_allowlist=state.allowlist_ips(self.conn))
+                self.guard = self._build_guard()
                 self.enforce_unblock(ip, source)
             return
         if event_type == "allow_remove":
@@ -154,7 +221,7 @@ class Agent:
             if ip:
                 with self.db_lock:
                     state.allowlist_remove(self.conn, ip)
-                self.guard = Guard.build(self.cfg, extra_allowlist=state.allowlist_ips(self.conn))
+                self.guard = self._build_guard()
             return
         if event_type == "sync_state":
             if str(payload.get("node", "")) == self.node_id:
@@ -264,6 +331,7 @@ class Agent:
         for error in errors[:10]:
             log(f"error: reconcile: {error}", err=True)
 
+        self._check_own_ip()  # register/announce own IP before connecting to grid
         self.bus.start()
 
         heartbeat_every = int(self.cfg["sync"]["heartbeat_interval_seconds"])
@@ -273,6 +341,7 @@ class Agent:
         last_sync = time.monotonic()  # first full sync after one interval
         last_expire = 0.0
         last_prune = 0.0
+        last_ip_check = time.monotonic()
 
         signal.signal(signal.SIGTERM, lambda *_: self.stop_event.set())
         signal.signal(signal.SIGINT, lambda *_: self.stop_event.set())
@@ -294,7 +363,11 @@ class Agent:
                 if now - last_prune >= 6 * 3600:
                     with self.db_lock:
                         state.prune_seen(self.conn, retention_days)
+                        state.peer_ip_prune(self.conn)
                     last_prune = now
+                if now - last_ip_check >= 300:  # re-check own IP every 5 min
+                    self._check_own_ip()
+                    last_ip_check = now
             except Exception as exc:  # keep the daemon alive; systemd restarts on hard crash
                 log(f"error: periodic loop: {exc}", err=True)
             self.stop_event.wait(5)

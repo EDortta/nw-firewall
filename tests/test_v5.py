@@ -362,6 +362,66 @@ def test_haproxy_ignores_private(tmp_path):
     assert detector.offenders == {}
 
 
+# --- peer_ips: ip_change / retirement / reclaim -----------------------------------
+
+def test_peer_ip_upsert_and_protected(tmp_path):
+    conn = state.connect(str(tmp_path / "t.db"))
+    state.peer_ip_upsert(conn, "node-a", "5.9.10.1")
+    state.peer_ip_upsert(conn, "node-b", "5.9.10.2")
+    protected = state.peer_ip_protected_set(conn)
+    assert "5.9.10.1" in protected
+    assert "5.9.10.2" in protected
+
+
+def test_peer_ip_retire_then_prune(tmp_path):
+    conn = state.connect(str(tmp_path / "t.db"))
+    state.peer_ip_upsert(conn, "node-a", "5.9.10.1")
+    # Retire with 0 seconds — immediately expired
+    state.peer_ip_retire(conn, "5.9.10.1", retain_seconds=0)
+    # Still in protected set until pruned (retire_after <= now means expired)
+    state.peer_ip_prune(conn)
+    protected = state.peer_ip_protected_set(conn)
+    assert "5.9.10.1" not in protected
+
+
+def test_peer_ip_retire_keeps_during_retention(tmp_path):
+    conn = state.connect(str(tmp_path / "t.db"))
+    state.peer_ip_upsert(conn, "node-a", "5.9.10.1")
+    # Retire with 1 hour — should still be protected
+    state.peer_ip_retire(conn, "5.9.10.1", retain_seconds=3600)
+    protected = state.peer_ip_protected_set(conn)
+    assert "5.9.10.1" in protected
+
+
+def test_peer_ip_cancel_retirement_on_reclaim(tmp_path):
+    conn = state.connect(str(tmp_path / "t.db"))
+    # Node A retires IP (expire immediately), then Node B claims it
+    state.peer_ip_upsert(conn, "node-a", "5.9.10.1")
+    state.peer_ip_retire(conn, "5.9.10.1", retain_seconds=0)
+    # Without cancel, pruning would remove it
+    state.peer_ip_prune(conn)
+    assert "5.9.10.1" not in state.peer_ip_protected_set(conn)
+    # Node B claims the IP — cancel should restore protection
+    state.peer_ip_upsert(conn, "node-b", "5.9.10.1", "active")
+    state.peer_ip_cancel_retirement(conn, "5.9.10.1")
+    assert "5.9.10.1" in state.peer_ip_protected_set(conn)
+
+
+def test_ip_change_event_in_known_events():
+    from authmon.events import KNOWN_EVENTS, ENFORCEMENT_EVENTS
+    assert "ip_change" in KNOWN_EVENTS
+    assert "ip_change" in ENFORCEMENT_EVENTS
+
+
+def test_ip_change_event_validated():
+    from authmon.events import make_event, sign_event, validate_incoming
+    secret = "test-secret"
+    ev = make_event("ip_change", "node-a", old_ip="5.9.10.1", new_ip="5.9.10.99")
+    ev = sign_event(ev, secret)
+    ok, why = validate_incoming(ev, secrets=[secret], max_age_seconds=300)
+    assert ok, why
+
+
 # --- agent rate limiter -----------------------------------------------------------
 
 def test_rate_limiter():

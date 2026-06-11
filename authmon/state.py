@@ -67,6 +67,16 @@ CREATE TABLE IF NOT EXISTS allowlist (
   reason   TEXT NOT NULL DEFAULT '',
   added_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS peer_ips (
+  node_id      TEXT NOT NULL,
+  ip           TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'active',
+  added_at     TEXT NOT NULL,
+  retire_after TEXT,
+  PRIMARY KEY (node_id, ip)
+);
+CREATE INDEX IF NOT EXISTS idx_peer_ips_ip ON peer_ips(ip);
 """
 
 
@@ -269,3 +279,72 @@ def allowlist_remove(conn, ip: str) -> bool:
     cur = conn.execute("DELETE FROM allowlist WHERE ip=?", (ip,))
     conn.commit()
     return cur.rowcount > 0
+
+
+# --- peer IPs ---------------------------------------------------------------
+
+def peer_ip_upsert(conn, node_id: str, ip: str, status: str = "active",
+                   retire_after: str | None = None) -> None:
+    conn.execute(
+        """
+        INSERT INTO peer_ips(node_id, ip, status, added_at, retire_after)
+        VALUES(?, ?, ?, ?, ?)
+        ON CONFLICT(node_id, ip) DO UPDATE SET
+          status=excluded.status, retire_after=excluded.retire_after
+        """,
+        (node_id, ip, status, utc_now_iso(), retire_after),
+    )
+    conn.commit()
+
+
+def peer_ip_retire(conn, ip: str, retain_seconds: int) -> None:
+    """Mark all active entries for this IP as retiring with a deadline."""
+    retire_after = (
+        datetime.now(timezone.utc) + timedelta(seconds=retain_seconds)
+    ).isoformat()
+    conn.execute(
+        "UPDATE peer_ips SET status='retiring', retire_after=? WHERE ip=? AND status='active'",
+        (retire_after, ip),
+    )
+    conn.commit()
+
+
+def peer_ip_cancel_retirement(conn, ip: str) -> None:
+    """Called when another node claims a retiring IP — keep it protected."""
+    conn.execute(
+        "UPDATE peer_ips SET status='active', retire_after=NULL WHERE ip=? AND status='retiring'",
+        (ip,),
+    )
+    conn.commit()
+
+
+def peer_ip_get_active(conn, node_id: str) -> str | None:
+    """Return the current active IP for a node, or None."""
+    row = conn.execute(
+        "SELECT ip FROM peer_ips WHERE node_id=? AND status='active' LIMIT 1",
+        (node_id,),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def peer_ip_protected_set(conn) -> set[str]:
+    """All IPs that should be protected: active + retiring not yet expired."""
+    now = utc_now_iso()
+    rows = conn.execute(
+        """
+        SELECT ip FROM peer_ips
+        WHERE status='active'
+           OR (status='retiring' AND retire_after > ?)
+        """,
+        (now,),
+    ).fetchall()
+    return {r[0] for r in rows}
+
+
+def peer_ip_prune(conn) -> int:
+    now = utc_now_iso()
+    cur = conn.execute(
+        "DELETE FROM peer_ips WHERE status='retiring' AND retire_after <= ?", (now,)
+    )
+    conn.commit()
+    return cur.rowcount

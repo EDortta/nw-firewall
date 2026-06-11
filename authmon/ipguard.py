@@ -69,6 +69,20 @@ def resolve_host_ips(host: str) -> set[str]:
     return out
 
 
+def resolve_primary_ip(broker_host: str) -> str | None:
+    """Return the source IP this host uses to reach the broker (most specific self-IP)."""
+    for family in (socket.AF_INET, socket.AF_INET6):
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as sock:
+                sock.connect((broker_host, 1))
+                ip = normalize_ip(sock.getsockname()[0])
+                if ip:
+                    return ip
+        except OSError:
+            continue
+    return None
+
+
 def resolve_self_ips(broker_host: str) -> set[str]:
     """Local addresses plus the source IP used to reach the broker."""
     out: set[str] = set()
@@ -104,13 +118,18 @@ class Guard:
         self.protected_ips = set(protected_ips)
 
     @classmethod
-    def build(cls, cfg: dict, *, extra_allowlist: list[str] | None = None) -> "Guard":
+    def build(cls, cfg: dict, *,
+              extra_allowlist: list[str] | None = None,
+              extra_protected: set[str] | None = None) -> "Guard":
         enf = cfg["enforcement"]
         broker_host = str(cfg["mqtt"]["host"])
         protected = resolve_self_ips(broker_host) | resolve_host_ips(broker_host)
-        # Resolve peer node IPs — grid members must never be blocked by each other.
+        # Static peers from config (bootstrap list of hostnames/IPs).
         for peer in enf.get("peers", []):
             protected |= resolve_host_ips(str(peer))
+        # Dynamic peers learned at runtime (from peer_ips DB table).
+        if extra_protected:
+            protected |= extra_protected
         return cls(
             allowlist=list(enf.get("allowlist", [])) + list(extra_allowlist or []),
             never_block=list(enf.get("never_block", [])),

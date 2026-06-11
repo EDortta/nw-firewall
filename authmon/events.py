@@ -18,7 +18,7 @@ from typing import Any
 
 EVENT_VERSION = 5
 
-ENFORCEMENT_EVENTS = {"block", "unblock", "allow_add", "allow_remove", "sync_state"}
+ENFORCEMENT_EVENTS = {"block", "unblock", "allow_add", "allow_remove", "sync_state", "ip_change"}
 INFORMATIONAL_EVENTS = {"heartbeat", "node_offline"}
 KNOWN_EVENTS = ENFORCEMENT_EVENTS | INFORMATIONAL_EVENTS
 
