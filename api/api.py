@@ -35,6 +35,7 @@ except ImportError:
 from authmon import state
 from authmon.config import load_config, load_secret, load_hmac_secrets, ConfigError
 from authmon.events import make_event
+from authmon.firewall import Firewall
 from authmon.ipguard import Guard, normalize_ip
 from authmon.mqttbus import MqttBus
 
@@ -54,6 +55,7 @@ except ConfigError as exc:
 CONN = state.connect(CFG["state"]["db_path"])
 DB_LOCK = threading.Lock()
 GUARD = Guard.build(CFG)
+FIREWALL = Firewall(CFG)
 BUS = MqttBus(
     CFG,
     client_id_role="api",
@@ -88,6 +90,35 @@ def _publish_or_503(event: dict) -> None:
     err = BUS.publish_signed(event)
     if err:
         raise HTTPException(status_code=503, detail=f"MQTT propagation failed: {err}")
+
+
+class PortAllowlistRequest(BaseModel):
+    ip: str
+    port: int
+    protocol: str = "tcp"
+    reason: str = "manual"
+
+    @field_validator("ip")
+    @classmethod
+    def _valid_ip(cls, v: str) -> str:
+        normalized = normalize_ip(v)
+        if not normalized:
+            raise ValueError(f"invalid IP: {v!r}")
+        return normalized
+
+    @field_validator("port")
+    @classmethod
+    def _valid_port(cls, v: int) -> int:
+        if not (1 <= v <= 65535):
+            raise ValueError(f"invalid port: {v}")
+        return v
+
+    @field_validator("protocol")
+    @classmethod
+    def _valid_protocol(cls, v: str) -> str:
+        if v not in ("tcp", "udp"):
+            raise ValueError(f"protocol must be tcp or udp, got: {v!r}")
+        return v
 
 
 class IpRequest(BaseModel):
@@ -191,6 +222,61 @@ def allowlist_remove(ip: str):
     with DB_LOCK:
         state.record_decision(CONN, ip=normalized, action="api_allow_remove", reason="")
     return {"ip": normalized, "action": "allow_remove", "event_id": event["event_id"]}
+
+
+@app.get("/v5/port-allowlist", dependencies=[Depends(_auth)])
+def port_allowlist_list():
+    with DB_LOCK:
+        entries = state.port_allowlist_list(CONN)
+    return {"port_allowlist": entries, "count": len(entries)}
+
+
+@app.post("/v5/port-allowlist", status_code=201, dependencies=[Depends(_auth)])
+def port_allowlist_add(req: PortAllowlistRequest):
+    _write_rate_limit()
+    with DB_LOCK:
+        state.port_allowlist_add(
+            CONN,
+            ip=req.ip,
+            port=req.port,
+            protocol=req.protocol,
+            reason=req.reason,
+        )
+        state.record_decision(
+            CONN,
+            ip=req.ip,
+            action="api_port_allow_add",
+            reason=f"port={req.port}/{req.protocol} {req.reason}",
+        )
+    err = FIREWALL.allow_port(req.ip, req.port, req.protocol)
+    if err:
+        raise HTTPException(status_code=500, detail=f"iptables error: {err}")
+    return {"ip": req.ip, "port": req.port, "protocol": req.protocol, "action": "allow_port"}
+
+
+@app.delete("/v5/port-allowlist/{ip}/{port}/{protocol}", status_code=202,
+            dependencies=[Depends(_auth)])
+def port_allowlist_remove(ip: str, port: int, protocol: str):
+    _write_rate_limit()
+    normalized = normalize_ip(ip)
+    if not normalized:
+        raise HTTPException(status_code=422, detail=f"invalid IP: {ip!r}")
+    if not (1 <= port <= 65535):
+        raise HTTPException(status_code=422, detail=f"invalid port: {port}")
+    if protocol not in ("tcp", "udp"):
+        raise HTTPException(status_code=422, detail=f"protocol must be tcp or udp")
+    with DB_LOCK:
+        removed = state.port_allowlist_remove(CONN, ip=normalized, port=port, protocol=protocol)
+        state.record_decision(
+            CONN,
+            ip=normalized,
+            action="api_port_allow_remove",
+            reason=f"port={port}/{protocol}",
+        )
+    if removed:
+        FIREWALL.deny_port(normalized, port, protocol)
+    return {"ip": normalized, "port": port, "protocol": protocol, "action": "deny_port",
+            "was_present": removed}
 
 
 if __name__ == "__main__":

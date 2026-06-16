@@ -48,16 +48,18 @@ def _load_config(path: Path) -> dict:
         raise ValueError("mqtt.host missing")
     pw_env   = str(m.get("password_env", "AUTHMON_MQTT_PASSWORD")).strip()
     hmac_env = str(d.get("security", {}).get("hmac_env", "AUTHMON_EVENT_HMAC")).strip()
+    password    = str(m.get("password", "")).strip() or os.getenv(pw_env, "").strip()
+    hmac_secret = str(d.get("security", {}).get("hmac_secret", "")).strip() or os.getenv(hmac_env, "").strip()
     return {
         "host":        host,
         "port":        int(m.get("port", 8883)),
         "tls":         bool(m.get("tls", True)),
         "tls_ca":      str(m.get("tls_ca", "")).strip() or None,
         "username":    str(m.get("username", "")).strip(),
-        "password":    os.getenv(pw_env, "").strip(),
+        "password":    password,
         "topic":       str(m.get("topic", "authmon/v5/events")).strip(),
         "keepalive":   int(m.get("keepalive", 60)),
-        "hmac_secret": os.getenv(hmac_env, "").strip(),
+        "hmac_secret": hmac_secret,
         "client_id":   f"authmon5-monitor-{socket.gethostname()}-{os.getpid()}",
     }
 
@@ -140,7 +142,12 @@ def _make_client(client_id: str) -> mqtt.Client:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="authmon v5 terminal monitor")
-    parser.add_argument("--config", default=os.getenv("AUTHMON_CONFIG", "/etc/authmon/config.json"))
+    _default_cfg = os.getenv("AUTHMON_CONFIG") or (
+        "/etc/authmon/config.json"
+        if Path("/etc/authmon/config.json").exists()
+        else str(Path.home() / ".config/authmon/config.json")
+    )
+    parser.add_argument("--config", default=_default_cfg)
     parser.add_argument("--refresh", type=float, default=2.0, help="Screen refresh interval (s)")
     parser.add_argument("--stale",   type=float, default=180.0, help="Seconds before node marked STALE")
     parser.add_argument("--events",  type=int,   default=15, help="Number of recent events to show")
@@ -172,7 +179,8 @@ def main() -> int:
         c.subscribe(cfg["topic"], qos=1)
         with lock: evt(f"subscribed {cfg['topic']} {cfg['host']}:{cfg['port']}")
 
-    def on_disconnect(_c, _u, rc, _p=None):
+    def on_disconnect(_c, _u, *args):
+        rc = args[1] if len(args) >= 2 else (args[0] if args else "?")
         with lock: evt(f"disconnected rc={rc} — reconnecting…")
 
     def on_message(_c, _u, msg):

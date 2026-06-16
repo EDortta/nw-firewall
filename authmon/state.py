@@ -68,6 +68,18 @@ CREATE TABLE IF NOT EXISTS allowlist (
   added_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS port_allowlist (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip         TEXT NOT NULL,
+  port       INTEGER NOT NULL,
+  protocol   TEXT NOT NULL DEFAULT 'tcp',
+  reason     TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL DEFAULT '',
+  UNIQUE(ip, port, protocol)
+);
+CREATE INDEX IF NOT EXISTS idx_port_allowlist_ip ON port_allowlist(ip);
+
 CREATE TABLE IF NOT EXISTS peer_ips (
   node_id      TEXT NOT NULL,
   ip           TEXT NOT NULL,
@@ -340,6 +352,43 @@ def peer_ip_protected_set(conn) -> set[str]:
     ).fetchall()
     return {r[0] for r in rows}
 
+
+# --- port allowlist ---------------------------------------------------------
+
+def port_allowlist_add(conn, *, ip: str, port: int, protocol: str = "tcp",
+                       reason: str = "", created_by: str = "") -> None:
+    conn.execute(
+        """
+        INSERT INTO port_allowlist(ip, port, protocol, reason, created_at, created_by)
+        VALUES(?, ?, ?, ?, ?, ?)
+        ON CONFLICT(ip, port, protocol) DO UPDATE SET
+          reason=excluded.reason, created_at=excluded.created_at, created_by=excluded.created_by
+        """,
+        (ip, port, protocol, reason, utc_now_iso(), created_by),
+    )
+    conn.commit()
+
+
+def port_allowlist_remove(conn, *, ip: str, port: int, protocol: str = "tcp") -> bool:
+    cur = conn.execute(
+        "DELETE FROM port_allowlist WHERE ip=? AND port=? AND protocol=?", (ip, port, protocol)
+    )
+    conn.commit()
+    return cur.rowcount > 0
+
+
+def port_allowlist_list(conn) -> list[dict]:
+    rows = conn.execute(
+        "SELECT ip, port, protocol, reason, created_at, created_by FROM port_allowlist ORDER BY created_at"
+    ).fetchall()
+    return [
+        {"ip": r[0], "port": r[1], "protocol": r[2], "reason": r[3],
+         "created_at": r[4], "created_by": r[5]}
+        for r in rows
+    ]
+
+
+# --- peer IPs ---------------------------------------------------------------
 
 def peer_ip_prune(conn) -> int:
     now = utc_now_iso()

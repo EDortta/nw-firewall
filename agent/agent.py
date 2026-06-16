@@ -331,6 +331,13 @@ class Agent:
         for error in errors[:10]:
             log(f"error: reconcile: {error}", err=True)
 
+        with self.db_lock:
+            port_entries = state.port_allowlist_list(self.conn)
+        pa, pe = self.firewall.reconcile_port_allowlist(port_entries)
+        log(f"startup reconcile port_allowlist={len(port_entries)} applied={pa} errors={len(pe)}")
+        for error in pe[:10]:
+            log(f"error: reconcile port: {error}", err=True)
+
         self._check_own_ip()  # register/announce own IP before connecting to grid
         self.bus.start()
 

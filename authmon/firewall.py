@@ -101,6 +101,42 @@ class Firewall:
             if code != 0:
                 return err or f"{binary} delete exit {code}"
 
+    # -- port allowlist ------------------------------------------------------
+
+    def _iptables_for(self, protocol: str) -> str:
+        return "ip6tables" if protocol == "ipv6" else "iptables"
+
+    def allow_port(self, ip: str, port: int, protocol: str = "tcp") -> str | None:
+        binary = self._iptables_for(protocol)
+        rule = ["-p", protocol, "--dport", str(port), "-s", ip, "-j", "ACCEPT"]
+        code, _ = _run([binary, "-C", "INPUT", *rule])
+        if code == 0:
+            return None
+        code, err = _run([binary, "-I", "INPUT", "1", *rule])
+        return None if code == 0 else (err or f"{binary} insert port rule exit {code}")
+
+    def deny_port(self, ip: str, port: int, protocol: str = "tcp") -> str | None:
+        binary = self._iptables_for(protocol)
+        rule = ["-p", protocol, "--dport", str(port), "-s", ip, "-j", "ACCEPT"]
+        last_err = None
+        while True:
+            code, _ = _run([binary, "-C", "INPUT", *rule])
+            if code != 0:
+                return last_err
+            code, err = _run([binary, "-D", "INPUT", *rule])
+            if code != 0:
+                return err or f"{binary} delete port rule exit {code}"
+
+    def reconcile_port_allowlist(self, entries: list[dict]) -> tuple[int, list[str]]:
+        applied, errors = 0, []
+        for entry in entries:
+            err = self.allow_port(entry["ip"], int(entry["port"]), entry["protocol"])
+            if err:
+                errors.append(f"{entry['ip']}:{entry['port']}/{entry['protocol']}: {err}")
+            else:
+                applied += 1
+        return applied, errors
+
     # -- recovery ------------------------------------------------------------
 
     def reconcile(self, active_blocks: list[dict]) -> tuple[int, list[str]]:
