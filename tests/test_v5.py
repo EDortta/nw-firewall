@@ -204,6 +204,65 @@ def test_outbox_at_least_once(conn):
     assert state.outbox_pending(conn) == []
 
 
+# --- port allowlist (per-node scope) ---------------------------------------
+
+def test_port_allowlist_scoped_listing(conn):
+    state.port_allowlist_add(conn, ip="1.2.3.4", port=8741, protocol="tcp",
+                             target_node="nodeA", reason="scoped")
+    state.port_allowlist_add(conn, ip="5.6.7.8", port=443, protocol="tcp",
+                             target_node="*", reason="fleet")
+    # nodeA sees its own scoped row + the fleet-wide row
+    for_a = state.port_allowlist_list(conn, target_node="nodeA")
+    assert {e["ip"] for e in for_a} == {"1.2.3.4", "5.6.7.8"}
+    # nodeB only sees the fleet-wide row
+    for_b = state.port_allowlist_list(conn, target_node="nodeB")
+    assert {e["ip"] for e in for_b} == {"5.6.7.8"}
+    # unscoped listing returns everything
+    assert len(state.port_allowlist_list(conn)) == 2
+
+
+def test_port_allowlist_same_port_different_nodes(conn):
+    # Same ip:port/proto scoped to two different nodes must coexist.
+    state.port_allowlist_add(conn, ip="1.2.3.4", port=22, protocol="tcp", target_node="nodeA")
+    state.port_allowlist_add(conn, ip="1.2.3.4", port=22, protocol="tcp", target_node="nodeB")
+    assert len(state.port_allowlist_list(conn)) == 2
+    removed = state.port_allowlist_remove(conn, ip="1.2.3.4", port=22, protocol="tcp",
+                                          target_node="nodeA")
+    assert removed is True
+    remaining = state.port_allowlist_list(conn)
+    assert len(remaining) == 1 and remaining[0]["target_node"] == "nodeB"
+
+
+def test_port_allowlist_migration_from_legacy(tmp_path):
+    # Build a DB with the pre-scope schema, then ensure connect() migrates it.
+    import sqlite3
+    db = tmp_path / "legacy.db"
+    raw = sqlite3.connect(db)
+    raw.executescript(
+        """
+        CREATE TABLE port_allowlist (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          ip TEXT NOT NULL, port INTEGER NOT NULL,
+          protocol TEXT NOT NULL DEFAULT 'tcp', reason TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL, created_by TEXT NOT NULL DEFAULT '',
+          UNIQUE(ip, port, protocol)
+        );
+        INSERT INTO port_allowlist(ip, port, protocol, reason, created_at, created_by)
+          VALUES('9.9.9.9', 53, 'udp', 'dns', '2026-01-01T00:00:00+00:00', 'legacy');
+        """
+    )
+    raw.commit()
+    raw.close()
+
+    conn = state.connect(db)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(port_allowlist)")}
+    assert "target_node" in cols
+    rows = state.port_allowlist_list(conn)
+    assert len(rows) == 1
+    assert rows[0]["target_node"] == "*" and rows[0]["ip"] == "9.9.9.9"
+    conn.close()
+
+
 # --- detector rules -------------------------------------------------------------
 
 def _make_detector(tmp_path, conn_path, **det_overrides):

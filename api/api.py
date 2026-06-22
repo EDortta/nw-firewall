@@ -35,7 +35,6 @@ except ImportError:
 from authmon import state
 from authmon.config import load_config, load_secret, load_hmac_secrets, ConfigError
 from authmon.events import make_event
-from authmon.firewall import Firewall
 from authmon.ipguard import Guard, normalize_ip
 from authmon.mqttbus import MqttBus
 
@@ -55,7 +54,6 @@ except ConfigError as exc:
 CONN = state.connect(CFG["state"]["db_path"])
 DB_LOCK = threading.Lock()
 GUARD = Guard.build(CFG)
-FIREWALL = Firewall(CFG)
 BUS = MqttBus(
     CFG,
     client_id_role="api",
@@ -97,6 +95,16 @@ class PortAllowlistRequest(BaseModel):
     port: int
     protocol: str = "tcp"
     reason: str = "manual"
+    target_node: str = "*"
+
+    @field_validator("target_node")
+    @classmethod
+    def _valid_target_node(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("target_node must be non-empty (node_id or '*' for fleet-wide)")
+        # accept "all" as an alias for the fleet-wide sentinel
+        return "*" if v.lower() == "all" else v
 
     @field_validator("ip")
     @classmethod
@@ -225,38 +233,35 @@ def allowlist_remove(ip: str):
 
 
 @app.get("/v5/port-allowlist", dependencies=[Depends(_auth)])
-def port_allowlist_list():
+def port_allowlist_list(node: str | None = None):
     with DB_LOCK:
-        entries = state.port_allowlist_list(CONN)
+        entries = state.port_allowlist_list(CONN, target_node=node)
     return {"port_allowlist": entries, "count": len(entries)}
 
 
-@app.post("/v5/port-allowlist", status_code=201, dependencies=[Depends(_auth)])
+@app.post("/v5/port-allowlist", status_code=202, dependencies=[Depends(_auth)])
 def port_allowlist_add(req: PortAllowlistRequest):
     _write_rate_limit()
+    event = make_event(
+        "port_allow_add", CFG["node_id"], ip=req.ip, port=req.port,
+        protocol=req.protocol, target_node=req.target_node, reason=req.reason,
+    )
+    _publish_or_503(event)
     with DB_LOCK:
-        state.port_allowlist_add(
-            CONN,
-            ip=req.ip,
-            port=req.port,
-            protocol=req.protocol,
-            reason=req.reason,
-        )
         state.record_decision(
             CONN,
             ip=req.ip,
             action="api_port_allow_add",
-            reason=f"port={req.port}/{req.protocol} {req.reason}",
+            reason=f"port={req.port}/{req.protocol} node={req.target_node} {req.reason}",
         )
-    err = FIREWALL.allow_port(req.ip, req.port, req.protocol)
-    if err:
-        raise HTTPException(status_code=500, detail=f"iptables error: {err}")
-    return {"ip": req.ip, "port": req.port, "protocol": req.protocol, "action": "allow_port"}
+    return {"ip": req.ip, "port": req.port, "protocol": req.protocol,
+            "target_node": req.target_node, "action": "port_allow_add",
+            "event_id": event["event_id"]}
 
 
 @app.delete("/v5/port-allowlist/{ip}/{port}/{protocol}", status_code=202,
             dependencies=[Depends(_auth)])
-def port_allowlist_remove(ip: str, port: int, protocol: str):
+def port_allowlist_remove(ip: str, port: int, protocol: str, node: str = "*"):
     _write_rate_limit()
     normalized = normalize_ip(ip)
     if not normalized:
@@ -265,18 +270,22 @@ def port_allowlist_remove(ip: str, port: int, protocol: str):
         raise HTTPException(status_code=422, detail=f"invalid port: {port}")
     if protocol not in ("tcp", "udp"):
         raise HTTPException(status_code=422, detail=f"protocol must be tcp or udp")
+    target_node = "*" if (node or "").strip().lower() in ("", "all", "*") else node.strip()
+    event = make_event(
+        "port_allow_remove", CFG["node_id"], ip=normalized, port=port,
+        protocol=protocol, target_node=target_node, reason="api remove",
+    )
+    _publish_or_503(event)
     with DB_LOCK:
-        removed = state.port_allowlist_remove(CONN, ip=normalized, port=port, protocol=protocol)
         state.record_decision(
             CONN,
             ip=normalized,
             action="api_port_allow_remove",
-            reason=f"port={port}/{protocol}",
+            reason=f"port={port}/{protocol} node={target_node}",
         )
-    if removed:
-        FIREWALL.deny_port(normalized, port, protocol)
-    return {"ip": normalized, "port": port, "protocol": protocol, "action": "deny_port",
-            "was_present": removed}
+    return {"ip": normalized, "port": port, "protocol": protocol,
+            "target_node": target_node, "action": "port_allow_remove",
+            "event_id": event["event_id"]}
 
 
 if __name__ == "__main__":

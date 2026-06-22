@@ -167,6 +167,52 @@ class Agent:
         self.guard = self._build_guard()
         log(f"ip_change node={node} old={old_ip} new={new_ip} retain={retain}s")
 
+    # -- port allowlist --------------------------------------------------
+
+    def _applies_here(self, target_node: str) -> bool:
+        return target_node in ("*", "all") or target_node == self.node_id
+
+    def _handle_port_allow(self, event_type: str, payload: dict) -> None:
+        ip = normalize_ip(str(payload.get("ip", "")))
+        if not ip:
+            return
+        try:
+            port = int(payload.get("port", 0))
+        except (TypeError, ValueError):
+            return
+        if not (1 <= port <= 65535):
+            return
+        protocol = str(payload.get("protocol", "tcp")).strip().lower()
+        if protocol not in ("tcp", "udp"):
+            return
+        target_node = str(payload.get("target_node", "*")).strip() or "*"
+        reason = str(payload.get("reason", ""))
+        applies = self._applies_here(target_node)
+
+        if event_type == "port_allow_add":
+            # Persist for every node (audit + reconcile); enforce only on the target.
+            with self.db_lock:
+                state.port_allowlist_add(
+                    self.conn, ip=ip, port=port, protocol=protocol,
+                    reason=reason, created_by=str(payload.get("node", "")),
+                    target_node=target_node,
+                )
+            if applies:
+                err = self.firewall.allow_port(ip, port, protocol)
+                status = f"error={err}" if err else "applied"
+            else:
+                status = "stored (not target)"
+            log(f"port_allow_add ip={ip} port={port}/{protocol} node={target_node} {status}")
+        else:  # port_allow_remove
+            with self.db_lock:
+                removed = state.port_allowlist_remove(
+                    self.conn, ip=ip, port=port, protocol=protocol, target_node=target_node,
+                )
+            if applies:
+                self.firewall.deny_port(ip, port, protocol)
+            log(f"port_allow_remove ip={ip} port={port}/{protocol} node={target_node} "
+                f"was_present={removed}")
+
     # -- incoming events ---------------------------------------------------
 
     def handle_event(self, payload: dict) -> None:
@@ -222,6 +268,9 @@ class Agent:
                 with self.db_lock:
                     state.allowlist_remove(self.conn, ip)
                 self.guard = self._build_guard()
+            return
+        if event_type in ("port_allow_add", "port_allow_remove"):
+            self._handle_port_allow(event_type, payload)
             return
         if event_type == "sync_state":
             if str(payload.get("node", "")) == self.node_id:
@@ -332,7 +381,7 @@ class Agent:
             log(f"error: reconcile: {error}", err=True)
 
         with self.db_lock:
-            port_entries = state.port_allowlist_list(self.conn)
+            port_entries = state.port_allowlist_list(self.conn, target_node=self.node_id)
         pa, pe = self.firewall.reconcile_port_allowlist(port_entries)
         log(f"startup reconcile port_allowlist={len(port_entries)} applied={pa} errors={len(pe)}")
         for error in pe[:10]:

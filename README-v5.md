@@ -136,7 +136,19 @@ ver [REVIEW-v4.md](REVIEW-v4.md) para o mapa achado→correção.
 }
 ```
 
-Eventos: `block`, `unblock`, `heartbeat`, `sync_state`, `node_offline`.
+Eventos: `block`, `unblock`, `allow_add`, `allow_remove`, `port_allow_add`,
+`port_allow_remove`, `ip_change`, `heartbeat`, `sync_state`, `node_offline`.
+
+### Port-allowlist com escopo por nó
+
+Os eventos `port_allow_add`/`port_allow_remove` liberam `ip:port/protocol` e
+carregam o campo `target_node`:
+
+- `target_node: "*"` (ou `"all"`) → fleet-wide: **todos** os nós aplicam a regra.
+- `target_node: "<node_id>"` → **apenas** aquele nó aplica no iptables; os demais
+  persistem a entrada para auditoria/reconciliação, mas não abrem a porta.
+
+A regra é reaplicada no boot (reconciliação filtra pelo `node_id` local + `*`).
 
 ---
 
@@ -188,6 +200,21 @@ curl -H "Authorization: Bearer $AUTHMON_API_KEY" \
      http://127.0.0.1:8741/v5/block
 curl -H "Authorization: Bearer $AUTHMON_API_KEY" \
      http://127.0.0.1:8741/v5/ip/1.2.3.4
+
+# port-allowlist escopado a UM nó (abre 8741/tcp só no lb01sp)
+curl -H "Authorization: Bearer $AUTHMON_API_KEY" \
+     -H 'Content-Type: application/json' \
+     -d '{"ip":"1.2.3.4","port":8741,"protocol":"tcp","target_node":"lb01sp","reason":"config-agent"}' \
+     http://127.0.0.1:8741/v5/port-allowlist
+# fleet-wide: omitir target_node (default "*") ou usar "all"
+
+# listar (opcionalmente filtrando pelo nó: rows do nó + fleet-wide)
+curl -H "Authorization: Bearer $AUTHMON_API_KEY" \
+     "http://127.0.0.1:8741/v5/port-allowlist?node=lb01sp"
+
+# remover no mesmo escopo (query ?node=)
+curl -X DELETE -H "Authorization: Bearer $AUTHMON_API_KEY" \
+     "http://127.0.0.1:8741/v5/port-allowlist/1.2.3.4/8741/tcp?node=lb01sp"
 ```
 
 ---

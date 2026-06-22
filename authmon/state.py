@@ -69,16 +69,18 @@ CREATE TABLE IF NOT EXISTS allowlist (
 );
 
 CREATE TABLE IF NOT EXISTS port_allowlist (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  ip         TEXT NOT NULL,
-  port       INTEGER NOT NULL,
-  protocol   TEXT NOT NULL DEFAULT 'tcp',
-  reason     TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL,
-  created_by TEXT NOT NULL DEFAULT '',
-  UNIQUE(ip, port, protocol)
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_node TEXT NOT NULL DEFAULT '*',
+  ip          TEXT NOT NULL,
+  port        INTEGER NOT NULL,
+  protocol    TEXT NOT NULL DEFAULT 'tcp',
+  reason      TEXT NOT NULL DEFAULT '',
+  created_at  TEXT NOT NULL,
+  created_by  TEXT NOT NULL DEFAULT '',
+  UNIQUE(target_node, ip, port, protocol)
 );
 CREATE INDEX IF NOT EXISTS idx_port_allowlist_ip ON port_allowlist(ip);
+CREATE INDEX IF NOT EXISTS idx_port_allowlist_node ON port_allowlist(target_node);
 
 CREATE TABLE IF NOT EXISTS peer_ips (
   node_id      TEXT NOT NULL,
@@ -103,9 +105,43 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA synchronous=NORMAL")
+    _migrate(conn)
     conn.executescript(DDL)
     conn.commit()
     return conn
+
+
+def _migrate(conn) -> None:
+    """Idempotent in-place migrations for DBs created by older schemas.
+
+    Runs before the DDL so that rebuilt tables exist before CREATE INDEX statements
+    in the DDL reference their new columns.
+    """
+    # port_allowlist: add per-node scope. Old schema had UNIQUE(ip,port,protocol)
+    # and no target_node column; rebuild so existing rows become fleet-wide ('*').
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(port_allowlist)")}
+    if cols and "target_node" not in cols:
+        conn.executescript(
+            """
+            ALTER TABLE port_allowlist RENAME TO port_allowlist_old;
+            CREATE TABLE port_allowlist (
+              id          INTEGER PRIMARY KEY AUTOINCREMENT,
+              target_node TEXT NOT NULL DEFAULT '*',
+              ip          TEXT NOT NULL,
+              port        INTEGER NOT NULL,
+              protocol    TEXT NOT NULL DEFAULT 'tcp',
+              reason      TEXT NOT NULL DEFAULT '',
+              created_at  TEXT NOT NULL,
+              created_by  TEXT NOT NULL DEFAULT '',
+              UNIQUE(target_node, ip, port, protocol)
+            );
+            INSERT INTO port_allowlist(target_node, ip, port, protocol, reason, created_at, created_by)
+              SELECT '*', ip, port, protocol, reason, created_at, created_by FROM port_allowlist_old;
+            DROP TABLE port_allowlist_old;
+            CREATE INDEX IF NOT EXISTS idx_port_allowlist_ip ON port_allowlist(ip);
+            CREATE INDEX IF NOT EXISTS idx_port_allowlist_node ON port_allowlist(target_node);
+            """
+        )
 
 
 # --- blocks -----------------------------------------------------------------
@@ -356,34 +392,50 @@ def peer_ip_protected_set(conn) -> set[str]:
 # --- port allowlist ---------------------------------------------------------
 
 def port_allowlist_add(conn, *, ip: str, port: int, protocol: str = "tcp",
-                       reason: str = "", created_by: str = "") -> None:
+                       reason: str = "", created_by: str = "",
+                       target_node: str = "*") -> None:
     conn.execute(
         """
-        INSERT INTO port_allowlist(ip, port, protocol, reason, created_at, created_by)
-        VALUES(?, ?, ?, ?, ?, ?)
-        ON CONFLICT(ip, port, protocol) DO UPDATE SET
+        INSERT INTO port_allowlist(target_node, ip, port, protocol, reason, created_at, created_by)
+        VALUES(?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(target_node, ip, port, protocol) DO UPDATE SET
           reason=excluded.reason, created_at=excluded.created_at, created_by=excluded.created_by
         """,
-        (ip, port, protocol, reason, utc_now_iso(), created_by),
+        (target_node, ip, port, protocol, reason, utc_now_iso(), created_by),
     )
     conn.commit()
 
 
-def port_allowlist_remove(conn, *, ip: str, port: int, protocol: str = "tcp") -> bool:
+def port_allowlist_remove(conn, *, ip: str, port: int, protocol: str = "tcp",
+                          target_node: str = "*") -> bool:
     cur = conn.execute(
-        "DELETE FROM port_allowlist WHERE ip=? AND port=? AND protocol=?", (ip, port, protocol)
+        "DELETE FROM port_allowlist WHERE target_node=? AND ip=? AND port=? AND protocol=?",
+        (target_node, ip, port, protocol),
     )
     conn.commit()
     return cur.rowcount > 0
 
 
-def port_allowlist_list(conn) -> list[dict]:
-    rows = conn.execute(
-        "SELECT ip, port, protocol, reason, created_at, created_by FROM port_allowlist ORDER BY created_at"
-    ).fetchall()
+def port_allowlist_list(conn, *, target_node: str | None = None) -> list[dict]:
+    """List port-allowlist entries.
+
+    target_node=None returns every entry. A node_id returns entries that apply to
+    that node — i.e. fleet-wide ('*') rows plus rows scoped to that node.
+    """
+    if target_node is None:
+        rows = conn.execute(
+            "SELECT target_node, ip, port, protocol, reason, created_at, created_by "
+            "FROM port_allowlist ORDER BY created_at"
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT target_node, ip, port, protocol, reason, created_at, created_by "
+            "FROM port_allowlist WHERE target_node IN ('*', ?) ORDER BY created_at",
+            (target_node,),
+        ).fetchall()
     return [
-        {"ip": r[0], "port": r[1], "protocol": r[2], "reason": r[3],
-         "created_at": r[4], "created_by": r[5]}
+        {"target_node": r[0], "ip": r[1], "port": r[2], "protocol": r[3], "reason": r[4],
+         "created_at": r[5], "created_by": r[6]}
         for r in rows
     ]
 
