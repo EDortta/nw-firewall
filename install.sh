@@ -35,6 +35,59 @@ if [[ ${#need_pkgs[@]} -gt 0 ]]; then
   apt-get install -y "${need_pkgs[@]}"
 fi
 
+# --- v4 teardown ------------------------------------------------------------
+# v5 replaces the v4 cron + pgrep/kill + lockfile approach. Older boxes still
+# carry the v4 listener / border-api in root+user crontab and as live processes,
+# which crash-loop once the old broker is gone. Remove them best-effort so v5
+# and v4 never coexist. Never fails the install.
+remove_v4_legacy() {
+  echo "== v4 teardown (best-effort)"
+  local v4_scripts=(
+    "listen-to-mosquitto.py"
+    "security-v4/api.py"
+    "7-iptables-agent.py"
+  )
+  local v4_locks=(
+    "/var/run/auth-monitor-border-api.lock"
+    "/var/run/auth-monitor-mqtt-listener.lock"
+    "/var/run/auth-monitor-iptables-agent.lock"
+  )
+
+  # Strip matching lines from root + invoking-user crontabs.
+  local who
+  for who in root "${SUDO_USER:-}"; do
+    [[ -z "${who}" ]] && continue
+    local current tmp pat
+    current="$(crontab -l -u "${who}" 2>/dev/null || true)"
+    [[ -z "${current}" ]] && continue
+    tmp="${current}"
+    for pat in "${v4_scripts[@]}" "/var/log/nw-monitor.log"; do
+      tmp="$(printf '%s\n' "${tmp}" | grep -F -v "${pat}" || true)"
+    done
+    if [[ "${tmp}" != "${current}" ]]; then
+      printf '%s\n' "${tmp}" | crontab -u "${who}" - || true
+      echo "  cleaned v4 cron entries for user=${who}"
+    fi
+  done
+
+  # Kill any live v4 processes.
+  local script
+  for script in "${v4_scripts[@]}"; do
+    if pkill -f "${script}" 2>/dev/null; then
+      echo "  killed running v4 process: ${script}"
+    fi
+  done
+
+  # Drop stale lockfiles.
+  local lock
+  for lock in "${v4_locks[@]}"; do
+    if [[ -e "${lock}" ]]; then
+      rm -f "${lock}" && echo "  removed lockfile: ${lock}"
+    fi
+  done
+}
+remove_v4_legacy || true
+
 echo "== files"
 mkdir -p "${INSTALL_DIR}" /etc/authmon /var/lib/authmon /var/log/authmon
 cp -r "${SRC_DIR}/authmon" "${SRC_DIR}/agent" "${SRC_DIR}/detector" "${SRC_DIR}/api" "${INSTALL_DIR}/"

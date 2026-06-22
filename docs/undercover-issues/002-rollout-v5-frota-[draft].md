@@ -33,6 +33,24 @@
 2. **`AUTHMON_API_KEY`** — necessário para o role `api`. Está comentado em `.credentials/authmon.env`. Puxar de um nó que já roda o role api (`/etc/authmon/env`) e gravar no `.credentials/authmon.env` (gitignored).
 3. Confirmar que o **broker MQTT** (mosquitto) está de pé em `mgmt01atl` (o v4 falhava por ConnectionRefused — garantir que o endpoint v5 `management.zeecred.dev.br` responde).
 
+### Progresso (código/tooling — feito)
+
+- [x] **Pré-req 1a — role correto:** `jkctl.py` (ZeeCred v1 `jk-structure`) agora mapeia
+  `--role master → install.sh all` (agent + authmon-api em `:8741`, cobre broker e LBs)
+  e `slave/None → install.sh agent`. Antes rodava `./install.sh` sem argumento (sempre `agent`).
+- [x] **Pré-req 1b — teardown v4:** `auth-monitor/install.sh` ganhou `remove_v4_legacy()`
+  (best-effort, não falha o install): limpa cron de root + `$SUDO_USER`
+  (`listen-to-mosquitto.py`, `security-v4/api.py`, `7-iptables-agent.py`, `/var/log/nw-monitor.log`),
+  mata os processos v4 e remove os lockfiles
+  (`border-api`, `mqtt-listener`, `iptables-agent`).
+- [x] **Pré-req 2 — validação AUTHMON_API_KEY:** `jkctl.py` exige `AUTHMON_API_KEY`
+  em `.credentials/authmon.env` quando `--role master` (falha cedo, local, em vez de
+  abortar o `install.sh` remoto). **Falta ainda preencher o valor real** (puxar de um nó api).
+- [ ] **Pré-req 3 — broker MQTT:** validação operacional (não-código), pendente.
+
+> Os passos do **Plano de rollout** abaixo (canário → agents → master → LBs) são
+> operação em produção e permanecem manuais/escalonados — não automatizados aqui.
+
 ## Plano de rollout (escalonado)
 
 1. **Tooling**: aplicar os fixes do pré-requisito 1 (+ AUTHMON_API_KEY).
