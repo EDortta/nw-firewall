@@ -49,6 +49,7 @@ class Agent:
         self.db_lock = threading.Lock()
         self.secrets = load_hmac_secrets(cfg)
         self.retain_seconds = int(cfg["enforcement"].get("peer_ip_retention_seconds", 86400))
+        self.protected_ports: list[dict] = cfg["enforcement"].get("protected_ports", [])
         self.guard = self._build_guard()
         self.firewall = Firewall(cfg)
         enf = cfg["enforcement"]
@@ -382,7 +383,7 @@ class Agent:
 
         with self.db_lock:
             port_entries = state.port_allowlist_list(self.conn, target_node=self.node_id)
-        pa, pe = self.firewall.reconcile_port_allowlist(port_entries)
+        pa, pe = self.firewall.reconcile_port_allowlist(port_entries, self.protected_ports)
         log(f"startup reconcile port_allowlist={len(port_entries)} applied={pa} errors={len(pe)}")
         for error in pe[:10]:
             log(f"error: reconcile port: {error}", err=True)

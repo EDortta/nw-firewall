@@ -127,7 +127,23 @@ class Firewall:
             if code != 0:
                 return err or f"{binary} delete port rule exit {code}"
 
-    def reconcile_port_allowlist(self, entries: list[dict]) -> tuple[int, list[str]]:
+    def ensure_port_deny(self, port: int, protocol: str = "tcp") -> str | None:
+        """Append a DROP rule for port if not already present.
+
+        Must be called after allow_port() calls so the per-IP ACCEPTs (inserted
+        at position 1) always precede this DROP in the INPUT chain.
+        """
+        binary = self._iptables_for(protocol)
+        rule = ["-p", protocol, "--dport", str(port), "-j", "DROP"]
+        code, _ = _run([binary, "-C", "INPUT", *rule])
+        if code == 0:
+            return None
+        code, err = _run([binary, "-A", "INPUT", *rule])
+        return None if code == 0 else (err or f"{binary} append port deny exit {code}")
+
+    def reconcile_port_allowlist(self, entries: list[dict],
+                                 protected_ports: list[dict] | None = None) -> tuple[int, list[str]]:
+        """Re-apply per-IP ACCEPT rules, then ensure DROP for every protected port."""
         applied, errors = 0, []
         for entry in entries:
             err = self.allow_port(entry["ip"], int(entry["port"]), entry["protocol"])
@@ -135,6 +151,10 @@ class Firewall:
                 errors.append(f"{entry['ip']}:{entry['port']}/{entry['protocol']}: {err}")
             else:
                 applied += 1
+        for pp in (protected_ports or []):
+            err = self.ensure_port_deny(int(pp["port"]), str(pp.get("protocol", "tcp")))
+            if err:
+                errors.append(f"port_deny {pp['port']}/{pp.get('protocol','tcp')}: {err}")
         return applied, errors
 
     # -- recovery ------------------------------------------------------------

@@ -28,7 +28,8 @@
     "never_block": [],
     "allowlist": [],
     "peers": [],
-    "peer_ip_retention_seconds": 86400
+    "peer_ip_retention_seconds": 86400,
+    "protected_ports": []
   },
   "detection": {
     "nginx_access_logs": ["/var/log/nginx/access.log"],
