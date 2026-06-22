@@ -35,6 +35,7 @@ except ImportError:
 from authmon import state
 from authmon.config import load_config, load_secret, load_hmac_secrets, ConfigError
 from authmon.events import make_event
+from authmon.firewall import Firewall
 from authmon.ipguard import Guard, normalize_ip
 from authmon.mqttbus import MqttBus
 
@@ -54,6 +55,8 @@ except ConfigError as exc:
 CONN = state.connect(CFG["state"]["db_path"])
 DB_LOCK = threading.Lock()
 GUARD = Guard.build(CFG)
+FIREWALL = Firewall(CFG)
+_PROTECTED_PORTS: list[dict] = CFG["enforcement"].get("protected_ports", [])
 BUS = MqttBus(
     CFG,
     client_id_role="api",
@@ -80,6 +83,10 @@ def _write_rate_limit() -> None:
         if len(_write_times) >= _WRITE_RATE_PER_MINUTE:
             raise HTTPException(status_code=429, detail="write rate limit exceeded")
         _write_times.append(now)
+
+
+def _applies_here(target_node: str) -> bool:
+    return target_node in ("*", "all") or target_node == CFG["node_id"]
 
 
 def _publish_or_503(event: dict) -> None:
@@ -248,12 +255,21 @@ def port_allowlist_add(req: PortAllowlistRequest):
     )
     _publish_or_503(event)
     with DB_LOCK:
+        state.port_allowlist_add(
+            CONN, ip=req.ip, port=req.port, protocol=req.protocol,
+            target_node=req.target_node, reason=req.reason,
+            created_by=f"api@{CFG['node_id']}",
+        )
         state.record_decision(
             CONN,
             ip=req.ip,
             action="api_port_allow_add",
             reason=f"port={req.port}/{req.protocol} node={req.target_node} {req.reason}",
         )
+    if _applies_here(req.target_node):
+        with DB_LOCK:
+            entries = state.port_allowlist_list(CONN, target_node=CFG["node_id"])
+        FIREWALL.reconcile_port_allowlist(entries, _PROTECTED_PORTS)
     return {"ip": req.ip, "port": req.port, "protocol": req.protocol,
             "target_node": req.target_node, "action": "port_allow_add",
             "event_id": event["event_id"]}
@@ -277,12 +293,18 @@ def port_allowlist_remove(ip: str, port: int, protocol: str, node: str = "*"):
     )
     _publish_or_503(event)
     with DB_LOCK:
+        state.port_allowlist_remove(CONN, ip=normalized, port=port,
+                                    protocol=protocol, target_node=target_node)
         state.record_decision(
             CONN,
             ip=normalized,
             action="api_port_allow_remove",
             reason=f"port={port}/{protocol} node={target_node}",
         )
+    if _applies_here(target_node):
+        err = FIREWALL.deny_port(normalized, port, protocol)
+        if err:
+            print(f"warn: deny_port local: {err}", file=sys.stderr, flush=True)
     return {"ip": normalized, "port": port, "protocol": protocol,
             "target_node": target_node, "action": "port_allow_remove",
             "event_id": event["event_id"]}
