@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>fw-monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root {
+  --bg:          #06090F;
+  --surface:     rgba(8, 16, 28, 0.86);
+  --border:      rgba(22, 42, 64, 0.95);
+  --border-sub:  rgba(22, 42, 64, 0.5);
+  --blocked:     #F59E0B;
+  --blocked-bg:  rgba(245,158,11,0.10);
+  --blocked-bd:  rgba(245,158,11,0.22);
+  --allowed:     #06D6A0;
+  --allowed-bg:  rgba(6,214,160,0.10);
+  --node:        #22D3EE;
+  --text:        #C8D6E5;
+  --muted:       #3E5A74;
+  --dim:         #1C3148;
+  --mono:        'JetBrains Mono', monospace;
+  --sans:        'Space Grotesk', system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--sans); }
+
+/* ── MAP ─────────────────────────────────────────────────────────────── */
+#map { position: fixed; inset: 0; z-index: 0; background: var(--bg); }
+
+/* ── GLASS PANEL ─────────────────────────────────────────────────────── */
+.glass {
+  position: fixed;
+  z-index: 900;
+  background: var(--surface);
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+/* ── TOP BAR ─────────────────────────────────────────────────────────── */
+#topbar {
+  top: 14px; left: 14px; right: 14px; height: 46px;
+  display: flex; align-items: center; gap: 16px; padding: 0 14px;
+}
+
+#brand {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  text-decoration: none;
+}
+#brand svg { width: 26px; height: 26px; }
+#brand .wordmark {
+  font-size: 13px; font-weight: 700; letter-spacing: .09em;
+  text-transform: uppercase; color: #dde6f0;
+}
+
+.vsep { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
+
+#nodes { display: flex; gap: 6px; align-items: center; min-width: 0; }
+
+.npill {
+  display: flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 20px;
+  border: 1px solid rgba(34,211,238,.22);
+  background: rgba(34,211,238,.06);
+  font: 500 11px/1 var(--mono);
+  color: var(--node); white-space: nowrap;
+}
+.npill .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--node); box-shadow: 0 0 6px var(--node);
+  animation: blink 2.5s ease-in-out infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+#counters { display: flex; gap: 18px; align-items: center; margin-left: auto; flex-shrink: 0; }
+
+.ctr { text-align: right; }
+.ctr-val {
+  display: block; font: 500 17px/1 var(--mono); color: var(--blocked);
+}
+.ctr.safe .ctr-val { color: var(--allowed); }
+.ctr-lbl {
+  display: block; font-size: 9px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+  margin-top: 1px;
+}
+
+/* ── SEARCH PANEL ────────────────────────────────────────────────────── */
+#panel-search {
+  top: 72px; right: 14px;
+  width: 310px; max-height: calc(100vh - 120px);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+
+.ph {
+  padding: 11px 13px 9px; border-bottom: 1px solid var(--border-sub);
+  flex-shrink: 0;
+}
+.ph-label {
+  font-size: 9px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 7px;
+}
+#q {
+  width: 100%; padding: 7px 10px; border-radius: 6px;
+  background: rgba(255,255,255,.04); border: 1px solid var(--border);
+  font: 12px/1.4 var(--mono); color: var(--text); outline: none;
+  transition: border-color .2s;
+}
+#q:focus { border-color: var(--blocked-bd); }
+#q::placeholder { color: var(--muted); }
+.hint { margin-top: 5px; font-size: 10px; color: var(--muted); }
+
+#results {
+  flex: 1; overflow-y: auto; padding: 7px;
+  scrollbar-width: thin; scrollbar-color: var(--dim) transparent;
+}
+#results::-webkit-scrollbar { width: 3px; }
+#results::-webkit-scrollbar-thumb { background: var(--dim); border-radius: 2px; }
+
+.rcard {
+  padding: 9px 11px; border-radius: 6px;
+  border: 1px solid var(--border-sub);
+  background: rgba(255,255,255,.018);
+  margin-bottom: 5px; cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.rcard:hover { background: var(--blocked-bg); border-color: var(--blocked-bd); }
+.rip { font: 500 13px/1 var(--mono); color: var(--blocked); }
+.rip.safe { color: var(--allowed); }
+.rip.cep  { color: var(--allowed); }
+.rmeta { margin-top: 5px; display: flex; gap: 5px; flex-wrap: wrap; }
+.tag {
+  padding: 1px 6px; border-radius: 3px;
+  font: 10px/1.6 var(--mono);
+  background: var(--blocked-bg); color: var(--blocked);
+  border: 1px solid var(--blocked-bd);
+}
+.tag.g { background: rgba(62,90,116,.18); color: var(--muted); border-color: var(--border-sub); }
+.tag.ok { background: var(--allowed-bg); color: var(--allowed); border-color: rgba(6,214,160,.25); }
+
+/* ── LIVE FEED ───────────────────────────────────────────────────────── */
+#panel-feed {
+  bottom: 46px; left: 14px;
+  width: 350px; max-height: 210px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#feed {
+  flex: 1; overflow: hidden; padding: 5px 6px;
+}
+.fentry {
+  display: flex; align-items: baseline; gap: 7px;
+  padding: 4px 7px; border-radius: 5px; font-size: 11px;
+  animation: fadein .3s ease-out;
+}
+@keyframes fadein { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+.fentry.new { background: var(--blocked-bg); }
+.farr { color: var(--blocked); font-size: 9px; flex-shrink: 0; }
+.fip  { font: 500 11px/1 var(--mono); color: var(--text); flex-shrink: 0; }
+.frsn { font: 10px/1 var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fcc  { margin-left: auto; font: 700 10px/1 var(--sans); color: var(--dim); flex-shrink: 0; }
+
+/* ── STATUS BAR ──────────────────────────────────────────────────────── */
+#statusbar {
+  bottom: 14px; left: 14px; right: 14px; height: 26px;
+  display: flex; align-items: center; gap: 12px; padding: 0 12px;
+  border-radius: 7px;
+}
+.si { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted); }
+.sdot { width: 6px; height: 6px; border-radius: 50%; background: var(--allowed); flex-shrink: 0; }
+.sdot.err { background: #EF4444; }
+
+/* ── SONAR PULSE ─────────────────────────────────────────────────────── */
+.pulse-wrap { position: relative; }
+.pulse-ring {
+  position: absolute; top: 50%; left: 50%;
+  width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  border-radius: 50%; border: 1.5px solid var(--blocked);
+  animation: sonar 1.4s ease-out forwards; pointer-events: none;
+}
+@keyframes sonar { 0%{transform:scale(.4);opacity:1} 100%{transform:scale(4.5);opacity:0} }
+
+/* ── LOADING ─────────────────────────────────────────────────────────── */
+#loader {
+  position: fixed; inset: 0; z-index: 9999; background: var(--bg);
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 14px; transition: opacity .5s;
+}
+#loader.out { opacity: 0; pointer-events: none; }
+.lring {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 2px solid var(--dim); border-top-color: var(--blocked);
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.ltxt { font: 11px var(--mono); color: var(--muted); }
+
+/* ── TOOLTIP OVERRIDE ────────────────────────────────────────────────── */
+.leaflet-tooltip.ft {
+  background: rgba(6,9,15,.93);
+  border: 1px solid rgba(245,158,11,.3);
+  border-radius: 6px; color: var(--text);
+  font-family: var(--sans); font-size: 12px;
+  padding: 6px 10px; box-shadow: 0 4px 20px rgba(0,0,0,.6);
+  backdrop-filter: blur(8px);
+}
+.leaflet-tooltip.ft::before { display: none; }
+
+.leaflet-popup.fw-popup .leaflet-popup-content-wrapper {
+  background: rgba(6,9,15,.96);
+  border: 1px solid rgba(245,158,11,.25);
+  border-radius: 8px; color: var(--text);
+  box-shadow: 0 8px 32px rgba(0,0,0,.7);
+  backdrop-filter: blur(16px);
+  padding: 0;
+}
+.leaflet-popup.fw-popup .leaflet-popup-content {
+  margin: 14px 16px; min-width: 240px;
+}
+.leaflet-popup.fw-popup .leaflet-popup-tip-container { display: none; }
+.leaflet-popup.fw-popup .leaflet-popup-close-button {
+  color: var(--muted) !important; font-size: 16px !important;
+  padding: 6px 8px !important; top: 4px !important; right: 4px !important;
+}
+.leaflet-popup.fw-popup .leaflet-popup-close-button:hover { color: var(--text) !important; }
+
+.leaflet-control-attribution { font-size: 9px !important; }
+
+@media (max-width: 640px) {
+  #panel-search { width: calc(100vw - 28px); right: 14px; }
+  #panel-feed   { width: calc(100vw - 28px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-ring, .npill .dot { animation: none; }
+}
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="lring"></div>
+  <div class="ltxt">conectando à frota…</div>
+</div>
+
+<div id="map"></div>
+
+<!-- Top bar -->
+<div class="glass" id="topbar">
+  <a id="brand" href="#">
+    <svg viewBox="0 0 26 26" fill="none">
+      <path d="M13 2.5L4 6.5v6.5c0 5.18 3.58 10.02 9 11.27C18.42 23.02 22 18.18 22 13V6.5L13 2.5z"
+            fill="rgba(245,158,11,.12)" stroke="#F59E0B" stroke-width="1.4" stroke-linejoin="round"/>
+      <path d="M9.5 13l2.8 2.8 4.7-4.7" stroke="#F59E0B" stroke-width="1.5"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <span class="wordmark">fw-monitor</span>
+  </a>
+
+  <div class="vsep"></div>
+  <div id="nodes"></div>
+
+  <div id="counters">
+    <div class="ctr">
+      <span class="ctr-val" id="n-blocked">—</span>
+      <span class="ctr-lbl">bloqueados</span>
+    </div>
+    <div class="vsep"></div>
+    <div class="ctr safe">
+      <span class="ctr-val" id="n-allowed">—</span>
+      <span class="ctr-lbl">allowlist</span>
+    </div>
+  </div>
+</div>
+
+<!-- Search -->
+<div class="glass" id="panel-search">
+  <div class="ph">
+    <div class="ph-label">Busca</div>
+    <input id="q" type="text" placeholder="IP · CEP · cidade · país" autocomplete="off" spellcheck="false">
+    <div class="hint">Ex: 8.8.8.8 &nbsp;·&nbsp; 01310-100 &nbsp;·&nbsp; Shanghai</div>
+  </div>
+  <div id="results"></div>
+</div>
+
+<!-- Feed -->
+<div class="glass" id="panel-feed">
+  <div class="ph">
+    <div class="ph-label">Bloqueios recentes</div>
+  </div>
+  <div id="feed"></div>
+</div>
+
+<!-- Status -->
+<div class="glass" id="statusbar">
+  <div class="si"><div class="sdot" id="sdot"></div><span id="stext">conectando…</span></div>
+  <div class="vsep"></div>
+  <div class="si"><span id="supd">—</span></div>
+  <div class="si" style="margin-left:auto"><span id="sver" style="font-family:var(--mono);font-size:9px;color:var(--dim)">authmon v5</span></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ── CONFIG ────────────────────────────────────────────────────────────────────
+const POLL_MS      = 15_000
+const GEO_CACHE    = 'fwm_geo'
+const BATCH_SIZE   = 80
+const IPAPI_URL    = '/geo/batch?fields=status,country,countryCode,city,region,lat,lon,as,org,isp,query'
+const FEED_MAX     = 14
+const INIT_PINS    = 200      // pins shown on first load
+const KNOWN_NODES  = ['clara', 'db-01']
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let geo      = {}
+let marks    = {}          // ip → L.circleMarker
+let blockMap = {}          // ip → block record {ip, reason, expires_at}
+let known    = new Set()
+let boot     = true
+
+try { geo = JSON.parse(sessionStorage.getItem(GEO_CACHE) || '{}') } catch(_) {}
+
+// ── MAP ───────────────────────────────────────────────────────────────────────
+const map = L.map('map', { center:[20,10], zoom:2, zoomControl:false, attributionControl:false })
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  subdomains:'abcd', maxZoom:19,
+}).addTo(map)
+
+L.control.zoom({ position:'bottomright' }).addTo(map)
+L.control.attribution({ position:'bottomright', prefix:false })
+  .addAttribution('© CartoDB &nbsp;·&nbsp; ip-api.com &nbsp;·&nbsp; © OpenStreetMap')
+  .addTo(map)
+
+// ── MARKERS ───────────────────────────────────────────────────────────────────
+function pulseIcon() {
+  return L.divIcon({
+    className: '',
+    html: '<div class="pulse-ring"></div>',
+    iconSize:[18,18], iconAnchor:[9,9],
+  })
+}
+
+function reasonLabel(r='') {
+  return r.replace('immediate:','').replace('local:v5 ','').split(';')[0].trim().slice(0,40)
+}
+
+function addMark(ip, lat, lon, reason, isNew) {
+  if (marks[ip]) {
+    if (isNew && !boot) pulse(ip)
+    return
+  }
+  const m = L.circleMarker([lat,lon], {
+    radius:5, fillColor:'#F59E0B',
+    color:'rgba(245,158,11,.55)', weight:1, fillOpacity:.88,
+  }).addTo(map)
+
+  // Hover tooltip — compact
+  const g = geo[ip] || {}
+  m.bindTooltip(
+    `<b style="font-family:monospace;color:#F59E0B">${ip}</b>` +
+    (g.cc ? ` <span style="color:#4A6380">${g.cc}</span>` : '') +
+    `<br><span style="color:#94a3b8;font-size:11px">${reasonLabel(reason)}</span>`,
+    { className:'ft', sticky:true }
+  )
+
+  // Click → rich popup
+  m.on('click', () => openPopup(ip, lat, lon))
+
+  marks[ip] = m
+  if (isNew && !boot) pulse(ip)
+}
+
+// ── POPUP ─────────────────────────────────────────────────────────────────────
+function openPopup(ip, lat, lon) {
+  const g      = geo[ip] || {}
+  const bl     = blockMap[ip] || {}
+  const reason  = reasonLabel(bl.reason || '')
+  const expires = bl.expires_at ? new Date(bl.expires_at).toLocaleString('pt-BR') : '—'
+  const asn     = g.as  || '—'
+  const org     = g.org || g.isp || '—'
+  const city    = [g.city, g.region, g.country].filter(Boolean).join(', ') || '—'
+  const isBR    = g.cc === 'BR'
+
+  const wrap = document.createElement('div')
+  wrap.style.cssText = "font-family:'Space Grotesk',sans-serif;min-width:240px"
+  wrap.innerHTML =
+    `<div style="font:700 14px/1 'JetBrains Mono',monospace;color:#F59E0B;margin-bottom:10px">${ip}</div>` +
+    row('Motivo',      `<span style="color:#F59E0B">${reason||'—'}</span>`) +
+    row('Localização', city) +
+    (isBR ? `<div id="popup-cep-row">${row('CEP', '<span style="color:#3E5A74">buscando…</span>')}</div>` : '') +
+    row('ASN',         asn) +
+    row('Organização', org) +
+    row('Expira',      expires)
+
+  const popup = L.popup({ className:'fw-popup', maxWidth:340, closeButton:true })
+    .setLatLng([lat,lon])
+    .setContent(wrap)
+    .openOn(map)
+
+  // Para IPs brasileiros: busca CEP em background e atualiza o popup
+  if (isBR) {
+    revGeo(lat, lon).then(({ cep }) => {
+      const el = document.getElementById('popup-cep-row')
+      if (!el) return
+      if (cep) {
+        const fmt = cep.replace(/(\d{5})(\d{3})/, '$1-$2')
+        el.innerHTML = row('CEP',
+          `<a href="#" style="color:#06D6A0;text-decoration:none;font-family:'JetBrains Mono',monospace"
+             onclick="document.getElementById('q').value='${fmt}';document.getElementById('q').dispatchEvent(new Event('input'));return false"
+             >${fmt}</a>`)
+      } else {
+        el.innerHTML = row('CEP', '<span style="color:#3E5A74">não encontrado</span>')
+      }
+      popup.update()
+    }).catch(() => {
+      const el = document.getElementById('popup-cep-row')
+      if (el) { el.innerHTML = row('CEP','<span style="color:#3E5A74">—</span>'); popup.update() }
+    })
+  }
+}
+
+function row(label, val) {
+  return `<div style="display:flex;gap:8px;margin-bottom:6px;font-size:11px">` +
+    `<span style="color:#3E5A74;min-width:90px;flex-shrink:0">${label}</span>` +
+    `<span style="color:#C8D6E5">${val}</span>` +
+    `</div>`
+}
+
+function pulse(ip) {
+  const m = marks[ip]; if (!m) return
+  const p = L.marker(m.getLatLng(), { icon:pulseIcon(), interactive:false }).addTo(map)
+  setTimeout(() => map.removeLayer(p), 1500)
+}
+
+// ── GEOCODE ───────────────────────────────────────────────────────────────────
+async function geocodeBatch(ips) {
+  const todo = ips.filter(ip => !geo[ip])
+  if (!todo.length) return
+  for (let i=0; i<todo.length; i+=BATCH_SIZE) {
+    try {
+      const r = await fetch(IPAPI_URL, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(todo.slice(i, i+BATCH_SIZE)),
+      })
+      if (!r.ok) continue
+      for (const d of await r.json()) {
+        if (d.status==='success')
+          geo[d.query] = {
+            lat:d.lat, lon:d.lon,
+            city:d.city, country:d.country, cc:d.countryCode, region:d.region,
+            as:d.as, org:d.org, isp:d.isp,
+          }
+      }
+    } catch(_) {}
+  }
+  try { sessionStorage.setItem(GEO_CACHE, JSON.stringify(geo)) } catch(_) {}
+}
+
+// ── FETCH ─────────────────────────────────────────────────────────────────────
+async function fetchJSON(path) {
+  const r = await fetch(path)
+  if (!r.ok) throw new Error(r.status)
+  return r.json()
+}
+
+// ── CEP LOOKUP ────────────────────────────────────────────────────────────────
+async function lookupCEP(cep) {
+  // 1) viacep.com.br → endereço
+  const vc = await fetch(`https://viacep.com.br/ws/${cep}/json/`)
+  if (!vc.ok) return null
+  const d = await vc.json()
+  if (d.erro) return null
+  // 2) Nominatim restrito ao Brasil (countrycodes=br evita falsos positivos)
+  const loc = [d.logradouro, d.bairro, d.localidade, d.uf].filter(Boolean).join(', ')
+  const nm = await fetch(
+    `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc)}&countrycodes=br&format=json&limit=1`,
+    { headers:{'Accept-Language':'pt-BR','User-Agent':'fw-monitor/1.0'} }
+  )
+  const places = await nm.json()
+  const coords = places[0] ? { lat:parseFloat(places[0].lat), lon:parseFloat(places[0].lon) } : null
+  return { ...d, coords }
+}
+
+async function revGeo(lat, lon) {
+  const r = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}&format=json&addressdetails=1`,
+    { headers:{'Accept-Language':'pt-BR','User-Agent':'fw-monitor/1.0'} }
+  )
+  const d = await r.json()
+  const raw = (d.address?.postcode||'').replace(/\D/g,'')
+  return { cep: raw.length===8 ? raw : '', display: d.display_name }
+}
+
+// ── UPDATE ────────────────────────────────────────────────────────────────────
+async function update() {
+  try {
+    const [data, alist] = await Promise.all([
+      fetchJSON('/api/v5/blocked'),
+      fetchJSON('/api/v5/allowlist').catch(() => ({ allowlist:[], count:0 })),
+    ])
+    const blocks = data.blocks || []
+    const allIPs = blocks.map(b=>b.ip)
+    const newIPs = allIPs.filter(ip => !known.has(ip))
+    known = new Set(allIPs)
+
+    // Keep blockMap up to date for popup details
+    for (const b of blocks) blockMap[b.ip] = b
+
+    document.getElementById('n-blocked').textContent = data.count.toLocaleString('pt-BR')
+    document.getElementById('n-allowed').textContent = (alist.count||0).toLocaleString('pt-BR')
+
+    // On first load geocode up to INIT_PINS IPs; on subsequent polls just the new ones
+    const toGeo = boot ? allIPs.slice(-INIT_PINS) : newIPs
+    await geocodeBatch(toGeo)
+
+    // Place/update markers — on boot show last INIT_PINS, otherwise show all
+    const pinSet = boot ? new Set(allIPs.slice(-INIT_PINS)) : new Set(allIPs)
+    for (const b of blocks) {
+      if (!pinSet.has(b.ip)) continue
+      const g = geo[b.ip]; if (!g) continue
+      addMark(b.ip, g.lat, g.lon, b.reason, newIPs.includes(b.ip))
+    }
+    // Remove stale markers
+    const cur = new Set(allIPs)
+    for (const ip in marks) {
+      if (!cur.has(ip)) { map.removeLayer(marks[ip]); delete marks[ip] }
+    }
+
+    // Feed
+    if (boot) {
+      blocks.slice(-FEED_MAX).reverse().forEach(b => addFeed(b.ip, b.reason, false))
+    } else if (newIPs.length) {
+      newIPs.slice(0,10).forEach(ip => {
+        const b = blocks.find(x=>x.ip===ip)
+        addFeed(ip, b?.reason||'', true)
+      })
+    }
+
+    boot = false
+    document.getElementById('sdot').className = 'sdot'
+    document.getElementById('stext').textContent = 'online'
+    const t = new Date()
+    document.getElementById('supd').textContent =
+      `atualizado ${t.getHours().toString().padStart(2,'0')}:${t.getMinutes().toString().padStart(2,'0')}:${t.getSeconds().toString().padStart(2,'0')}`
+    document.getElementById('loader').classList.add('out')
+  } catch(e) {
+    console.error(e)
+    document.getElementById('sdot').className = 'sdot err'
+    document.getElementById('stext').textContent = 'sem conexão com API'
+  }
+}
+
+// ── FEED ─────────────────────────────────────────────────────────────────────
+function addFeed(ip, reason, isNew) {
+  const g  = geo[ip] || {}
+  const el = document.createElement('div')
+  el.className = 'fentry' + (isNew ? ' new' : '')
+  el.innerHTML =
+    `<span class="farr">▶</span>` +
+    `<span class="fip">${ip}</span>` +
+    `<span class="frsn">${reasonLabel(reason)}</span>` +
+    `<span class="fcc">${g.cc||'??'}</span>`
+  el.addEventListener('click', () => { if(g.lat) map.flyTo([g.lat,g.lon],8,{duration:1.2}) })
+  const fd = document.getElementById('feed')
+  fd.insertBefore(el, fd.firstChild)
+  while (fd.children.length > FEED_MAX) fd.removeChild(fd.lastChild)
+}
+
+// ── NODES ─────────────────────────────────────────────────────────────────────
+function initNodes() {
+  const c = document.getElementById('nodes')
+  KNOWN_NODES.forEach(n => {
+    const p = document.createElement('div')
+    p.className = 'npill'
+    p.innerHTML = `<div class="dot"></div>${n}`
+    c.appendChild(p)
+  })
+}
+
+// ── SEARCH ────────────────────────────────────────────────────────────────────
+let sqt
+
+document.getElementById('q').addEventListener('input', e => {
+  clearTimeout(sqt)
+  const v = e.target.value.trim()
+  if (!v) { document.getElementById('results').innerHTML = ''; return }
+  sqt = setTimeout(() => search(v), 380)
+})
+
+async function search(q) {
+  const box = document.getElementById('results')
+  box.innerHTML = '<div style="padding:14px;text-align:center;color:var(--muted);font-size:11px">buscando…</div>'
+
+  // CEP (8 digits or NNNNN-NNN)
+  if (/^\d{5}-?\d{3}$/.test(q)) {
+    const cep = q.replace('-','')
+    box.innerHTML = ''
+    try {
+      const d = await lookupCEP(cep)
+      if (d) {
+        const fmt = cep.replace(/(\d{5})(\d{3})/,'$1-$2')
+        const card = mkCard()
+        card.innerHTML =
+          `<div class="rip cep">CEP ${fmt}</div>` +
+          `<div class="rmeta">` +
+            `<span class="tag g">${d.logradouro||'—'}</span>` +
+            `<span class="tag g">${d.bairro||''}${d.bairro?',':''} ${d.localidade} · ${d.uf}</span>` +
+          `</div>` +
+          (d.coords ? `<div class="rmeta"><span class="tag g">lat ${d.coords.lat.toFixed(4)}</span><span class="tag g">lng ${d.coords.lon.toFixed(4)}</span></div>` : '')
+        if (d.coords) card.addEventListener('click', () => map.flyTo([d.coords.lat,d.coords.lon],13,{duration:1.5}))
+        box.appendChild(card)
+        return
+      }
+    } catch(_) {}
+    box.innerHTML = '<div style="padding:14px;text-align:center;color:var(--muted);font-size:11px">CEP não encontrado</div>'
+    return
+  }
+
+  // Exact IP
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(q)) {
+    box.innerHTML = ''
+    try {
+      const d = await fetchJSON(`/api/v5/ip/${q}`)
+      const g = geo[q]
+      const isBlocked = !!d.blocked
+      const isAllowed = !!d.allowlisted
+      const col = isBlocked ? 'var(--blocked)' : isAllowed ? 'var(--allowed)' : 'var(--muted)'
+      const lbl = isBlocked ? 'BLOQUEADO' : isAllowed ? 'ALLOWLIST' : 'LIVRE'
+      const card = mkCard()
+      card.innerHTML =
+        `<div class="rip" style="color:${col}">${q}</div>` +
+        `<div class="rmeta">` +
+          `<span class="tag ${isAllowed?'ok':''}" style="${isBlocked?'':'background:rgba(62,90,116,.18);color:var(--muted);border-color:var(--border-sub)'}">${lbl}</span>` +
+          (d.blocked ? `<span class="tag">${reasonLabel(d.blocked.reason)}</span>` : '') +
+        `</div>` +
+        (g ? `<div class="rmeta"><span class="tag g">${g.city||'?'}</span><span class="tag g">${g.country||'?'}</span></div>` : '')
+      if (g) card.addEventListener('click', () => { map.flyTo([g.lat,g.lon],9,{duration:1.2}); marks[q]?.openTooltip() })
+      else {
+        // on-demand geocode
+        geocodeBatch([q]).then(() => {
+          const gg = geo[q]
+          if (!gg) return
+          const mm = mkTag('g', gg.city||'?'); const mc = mkTag('g', gg.country||'?')
+          const row = document.createElement('div'); row.className='rmeta'
+          row.appendChild(mm); row.appendChild(mc)
+          card.appendChild(row)
+          card.addEventListener('click', () => map.flyTo([gg.lat,gg.lon],9,{duration:1.2}))
+        })
+      }
+      box.appendChild(card)
+    } catch(e) {
+      box.innerHTML = '<div style="padding:14px;text-align:center;color:var(--muted);font-size:11px">IP não encontrado</div>'
+    }
+    return
+  }
+
+  // Text: search geo cache + Nominatim
+  box.innerHTML = ''
+  const ql = q.toLowerCase()
+  const hits = []
+  for (const [ip,g] of Object.entries(geo)) {
+    if (!known.has(ip)) continue
+    if (ip.includes(q)||g.country?.toLowerCase().includes(ql)||g.city?.toLowerCase().includes(ql)||g.cc?.toLowerCase()===ql||g.region?.toLowerCase().includes(ql))
+      hits.push({ip,g})
+  }
+
+  if (hits.length) {
+    hits.slice(0,25).forEach(({ip,g}) => {
+      const card = mkCard()
+      card.innerHTML =
+        `<div class="rip">${ip}</div>` +
+        `<div class="rmeta"><span class="tag g">${g.city||'?'}</span><span class="tag g">${g.country||'?'}</span></div>`
+      card.addEventListener('click', () => { map.flyTo([g.lat,g.lon],9,{duration:1.2}); marks[ip]?.openTooltip() })
+      box.appendChild(card)
+    })
+    return
+  }
+
+  // Fallback: Nominatim place
+  if (q.length >= 3) {
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`,
+        { headers:{'Accept-Language':'pt-BR','User-Agent':'fw-monitor/1.0'} })
+      const pl = await r.json()
+      if (pl.length) {
+        const p = pl[0]
+        map.flyTo([+p.lat,+p.lon],8,{duration:1.5})
+        box.innerHTML =
+          `<div style="padding:10px;font-size:11px;color:var(--muted)">Navegando para <b style="color:var(--text)">${p.display_name.split(',')[0]}</b></div>`
+        return
+      }
+    } catch(_) {}
+  }
+
+  box.innerHTML = '<div style="padding:14px;text-align:center;color:var(--muted);font-size:11px">Sem resultados</div>'
+}
+
+function mkCard() {
+  const el = document.createElement('div'); el.className='rcard'; return el
+}
+function mkTag(cls, txt) {
+  const s = document.createElement('span'); s.className=`tag ${cls}`; s.textContent=txt; return s
+}
+
+// ── CLICK MAP → reverse CEP ───────────────────────────────────────────────────
+map.on('click', async e => {
+  const {lat,lng} = e.latlng
+  // Only within Brazil
+  if (lat > -34 && lat < 6 && lng > -74 && lng < -34) {
+    try {
+      const d = await revGeo(lat, lng)
+      if (d.cep && d.cep.length===8) {
+        const inp = document.getElementById('q')
+        inp.value = d.cep.replace(/(\d{5})(\d{3})/,'$1-$2')
+        inp.dispatchEvent(new Event('input'))
+      }
+    } catch(_) {}
+  }
+})
+
+// ── BOOT ─────────────────────────────────────────────────────────────────────
+initNodes()
+update()
+setInterval(update, POLL_MS)
+</script>
+</body>
+</html>
