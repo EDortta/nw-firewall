@@ -313,7 +313,8 @@ const BATCH_SIZE   = 80
 const IPAPI_URL    = '/geo/batch?fields=status,country,countryCode,city,region,lat,lon,as,org,isp,query'
 const FEED_MAX     = 14
 const INIT_PINS    = 200      // pins shown on first load
-const KNOWN_NODES  = ['clara', 'db-01']
+// node_id aliases: rename server hostnames to project names where needed
+const NODE_ALIAS   = { 'clara': 'whisper' }
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 let geo      = {}
@@ -573,14 +574,20 @@ function addFeed(ip, reason, isNew) {
 }
 
 // ── NODES ─────────────────────────────────────────────────────────────────────
-function initNodes() {
-  const c = document.getElementById('nodes')
-  KNOWN_NODES.forEach(n => {
-    const p = document.createElement('div')
-    p.className = 'npill'
-    p.innerHTML = `<div class="dot"></div>${n}`
-    c.appendChild(p)
-  })
+async function loadNodes() {
+  try {
+    const d = await fetchJSON('/api/v5/nodes')
+    const c = document.getElementById('nodes')
+    c.innerHTML = ''
+    for (const { node } of d.nodes) {
+      const label = NODE_ALIAS[node] || node
+      const p = document.createElement('div')
+      p.className = 'npill'
+      p.title = node  // tooltip mostra o node_id real
+      p.innerHTML = `<div class="dot"></div>${label}`
+      c.appendChild(p)
+    }
+  } catch(_) {}
 }
 
 // ── SEARCH ────────────────────────────────────────────────────────────────────
@@ -725,9 +732,10 @@ map.on('click', async e => {
 })
 
 // ── BOOT ─────────────────────────────────────────────────────────────────────
-initNodes()
+loadNodes()
 update()
 setInterval(update, POLL_MS)
+setInterval(loadNodes, 60_000)   // recarrega nós a cada minuto
 </script>
 </body>
 </html>

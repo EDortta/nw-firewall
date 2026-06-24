@@ -163,6 +163,28 @@ def health():
     return {"status": "ok" if db_ok else "degraded", "db": db_ok, "node": CFG["node_id"]}
 
 
+@app.get("/v5/nodes", dependencies=[Depends(_auth)])
+def nodes():
+    """Active nodes derived from block sources and peer_ips table."""
+    with DB_LOCK:
+        # Nodes that sent blocks or sync events
+        rows = CONN.execute(
+            "SELECT DISTINCT source FROM blocks WHERE source != '' AND active=1"
+        ).fetchall()
+        peers = CONN.execute(
+            "SELECT node_id, ip, status FROM peer_ips ORDER BY added_at DESC"
+        ).fetchall()
+    seen: set[str] = set()
+    result = []
+    for (src,) in rows:
+        # source format: "block@node" or "sync_state@node" or "local:v5"
+        node = src.split("@")[-1] if "@" in src else CFG["node_id"]
+        if node not in seen:
+            seen.add(node)
+            result.append({"node": node, "status": "active"})
+    return {"nodes": result, "count": len(result), "local": CFG["node_id"]}
+
+
 @app.get("/v5/blocked", dependencies=[Depends(_auth)])
 def blocked():
     with DB_LOCK:
