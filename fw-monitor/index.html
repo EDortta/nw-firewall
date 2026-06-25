@@ -498,6 +498,31 @@ async function revGeo(lat, lon) {
   return { cep: raw.length===8 ? raw : '', display: d.display_name }
 }
 
+// ── SERVER GEO → CLIENT FORMAT ────────────────────────────────────────────────
+function serverGeoToClient(g) {
+  return {
+    lat: g.lat, lon: g.lon, cc: g.cc, city: g.city,
+    country: g.country, region: g.region,
+    as: g.asn,   // server stores "asn"; client uses "as"
+    org: g.org, isp: g.isp,
+  }
+}
+
+// ── BACKGROUND GEOCODE (progressive pins for all IPs) ─────────────────────────
+async function bgGeocode(ips, blocks) {
+  for (let i = 0; i < ips.length; i += BATCH_SIZE) {
+    await geocodeBatch(ips.slice(i, i + BATCH_SIZE))
+    for (const ip of ips.slice(i, i + BATCH_SIZE)) {
+      const g = geo[ip]
+      if (!g) continue
+      const b = blocks.find(x => x.ip === ip)
+      if (!b) continue
+      addMark(ip, g.lat, g.lon, b.reason, false)
+    }
+    await new Promise(r => setTimeout(r, 300))
+  }
+}
+
 // ── UPDATE ────────────────────────────────────────────────────────────────────
 async function update() {
   try {
@@ -516,14 +541,20 @@ async function update() {
     document.getElementById('n-blocked').textContent = data.count.toLocaleString('pt-BR')
     document.getElementById('n-allowed').textContent = (alist.count||0).toLocaleString('pt-BR')
 
-    // On first load geocode up to INIT_PINS IPs; on subsequent polls just the new ones
-    const toGeo = boot ? allIPs.slice(-INIT_PINS) : newIPs
-    await geocodeBatch(toGeo)
+    const wasboot = boot
 
-    // Place/update markers — on boot show last INIT_PINS, otherwise show all
-    const pinSet = boot ? new Set(allIPs.slice(-INIT_PINS)) : new Set(allIPs)
+    // Absorb server-side geo data into local cache (no extra API call)
     for (const b of blocks) {
-      if (!pinSet.has(b.ip)) continue
+      if (b.geo && !geo[b.ip]) geo[b.ip] = serverGeoToClient(b.geo)
+    }
+    try { sessionStorage.setItem(GEO_CACHE, JSON.stringify(geo)) } catch(_) {}
+
+    // Client-side geocode only for IPs that still lack geo data
+    const needsGeo = (wasboot ? allIPs : newIPs).filter(ip => !geo[ip])
+    await geocodeBatch(needsGeo.slice(0, BATCH_SIZE))
+
+    // Render all IPs with geo data (server or cache) — no arbitrary 200-pin cap
+    for (const b of blocks) {
       const g = geo[b.ip]; if (!g) continue
       addMark(b.ip, g.lat, g.lon, b.reason, newIPs.includes(b.ip))
     }
@@ -534,7 +565,7 @@ async function update() {
     }
 
     // Feed
-    if (boot) {
+    if (wasboot) {
       blocks.slice(-FEED_MAX).reverse().forEach(b => addFeed(b.ip, b.reason, false))
     } else if (newIPs.length) {
       newIPs.slice(0,10).forEach(ip => {
@@ -544,6 +575,11 @@ async function update() {
     }
 
     boot = false
+
+    // Background: progressively geocode remaining IPs and add pins as they resolve
+    if (needsGeo.length > BATCH_SIZE) {
+      bgGeocode(needsGeo.slice(BATCH_SIZE), blocks).catch(() => {})
+    }
     document.getElementById('sdot').className = 'sdot'
     document.getElementById('stext').textContent = 'online'
     const t = new Date()
