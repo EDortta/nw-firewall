@@ -189,7 +189,19 @@ def nodes():
 def blocked():
     with DB_LOCK:
         rows = state.list_active_blocks(CONN)
+        geo_map = state.geo_all(CONN)
+    for r in rows:
+        g = geo_map.get(r["ip"])
+        if g:
+            r["geo"] = g
     return {"blocks": rows, "count": len(rows)}
+
+
+@app.get("/v5/geo", dependencies=[Depends(_auth)])
+def geo_cache():
+    with DB_LOCK:
+        data = state.geo_all(CONN)
+    return {"geo": data, "count": len(data)}
 
 
 @app.get("/v5/allowlist", dependencies=[Depends(_auth)])

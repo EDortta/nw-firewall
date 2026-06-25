@@ -90,7 +90,7 @@ remove_v4_legacy || true
 
 echo "== files"
 mkdir -p "${INSTALL_DIR}" /etc/authmon /var/lib/authmon /var/log/authmon
-cp -r "${SRC_DIR}/authmon" "${SRC_DIR}/agent" "${SRC_DIR}/detector" "${SRC_DIR}/api" "${INSTALL_DIR}/"
+cp -r "${SRC_DIR}/authmon" "${SRC_DIR}/agent" "${SRC_DIR}/detector" "${SRC_DIR}/api" "${SRC_DIR}/geo-enricher" "${INSTALL_DIR}/"
 chmod 750 /var/lib/authmon /var/log/authmon
 
 if [[ ! -f "${CONFIG_FILE}" ]]; then

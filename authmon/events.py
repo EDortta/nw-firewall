@@ -20,7 +20,7 @@ EVENT_VERSION = 5
 
 ENFORCEMENT_EVENTS = {"block", "unblock", "allow_add", "allow_remove", "sync_state", "ip_change",
                       "port_allow_add", "port_allow_remove"}
-INFORMATIONAL_EVENTS = {"heartbeat", "node_offline"}
+INFORMATIONAL_EVENTS = {"heartbeat", "node_offline", "geo_claim", "geo_enriched"}
 KNOWN_EVENTS = ENFORCEMENT_EVENTS | INFORMATIONAL_EVENTS
 
 

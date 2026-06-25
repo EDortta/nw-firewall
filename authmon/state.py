@@ -91,6 +91,21 @@ CREATE TABLE IF NOT EXISTS peer_ips (
   PRIMARY KEY (node_id, ip)
 );
 CREATE INDEX IF NOT EXISTS idx_peer_ips_ip ON peer_ips(ip);
+
+CREATE TABLE IF NOT EXISTS geo_cache (
+  ip         TEXT PRIMARY KEY,
+  lat        REAL,
+  lon        REAL,
+  cc         TEXT NOT NULL DEFAULT '',
+  city       TEXT NOT NULL DEFAULT '',
+  country    TEXT NOT NULL DEFAULT '',
+  region     TEXT NOT NULL DEFAULT '',
+  asn        TEXT NOT NULL DEFAULT '',
+  org        TEXT NOT NULL DEFAULT '',
+  isp        TEXT NOT NULL DEFAULT '',
+  fetched_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_geo_cache_cc ON geo_cache(cc);
 """
 
 
@@ -449,3 +464,63 @@ def peer_ip_prune(conn) -> int:
     )
     conn.commit()
     return cur.rowcount
+
+
+# --- geo cache --------------------------------------------------------------
+
+def geo_upsert(conn, *, ip: str, lat: float, lon: float, cc: str = "",
+               city: str = "", country: str = "", region: str = "",
+               asn: str = "", org: str = "", isp: str = "") -> None:
+    conn.execute(
+        """
+        INSERT INTO geo_cache(ip, lat, lon, cc, city, country, region, asn, org, isp, fetched_at)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(ip) DO UPDATE SET
+          lat=excluded.lat, lon=excluded.lon, cc=excluded.cc,
+          city=excluded.city, country=excluded.country, region=excluded.region,
+          asn=excluded.asn, org=excluded.org, isp=excluded.isp,
+          fetched_at=excluded.fetched_at
+        """,
+        (ip, lat, lon, cc, city, country, region, asn, org, isp, utc_now_iso()),
+    )
+    conn.commit()
+
+
+def geo_get(conn, ip: str) -> dict | None:
+    row = conn.execute(
+        "SELECT lat, lon, cc, city, country, region, asn, org, isp FROM geo_cache WHERE ip=?",
+        (ip,),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        "lat": row[0], "lon": row[1], "cc": row[2], "city": row[3],
+        "country": row[4], "region": row[5], "asn": row[6], "org": row[7], "isp": row[8],
+    }
+
+
+def geo_all(conn) -> dict[str, dict]:
+    rows = conn.execute(
+        "SELECT ip, lat, lon, cc, city, country, region, asn, org, isp FROM geo_cache"
+    ).fetchall()
+    return {
+        r[0]: {
+            "lat": r[1], "lon": r[2], "cc": r[3], "city": r[4],
+            "country": r[5], "region": r[6], "asn": r[7], "org": r[8], "isp": r[9],
+        }
+        for r in rows
+    }
+
+
+def geo_missing(conn, *, limit: int = 100) -> list[str]:
+    """Active blocked IPs that have no geo data yet."""
+    rows = conn.execute(
+        """
+        SELECT b.ip FROM blocks b
+        LEFT JOIN geo_cache g ON g.ip = b.ip
+        WHERE b.active = 1 AND g.ip IS NULL
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return [r[0] for r in rows]

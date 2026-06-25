@@ -16,3 +16,16 @@ auth-monitor.code-workspace*
 README-v5-old.md
 /v2/
 /v3/
+# AI-Agents kit — managed by governancekit install-agents
+AGENTS.md
+.cursorrules
+CLAUDE.md
+.windsurfrules
+GEMINI.md
+.github/copilot-instructions.md
+.credentials
+docs
+handoff.md
+new-tag.sh
+scripts/install-agents-kit.sh
+# end AI-Agents kit

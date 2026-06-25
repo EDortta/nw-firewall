@@ -300,6 +300,35 @@ class Agent:
             log(f"sync_state from={payload.get('node')} entries={len(entries)} applied={applied}")
             return
 
+        if event_type == "geo_enriched":
+            entries = payload.get("entries", [])
+            stored = 0
+            for entry in entries:
+                ip = normalize_ip(str(entry.get("ip", "")))
+                if not ip:
+                    continue
+                try:
+                    with self.db_lock:
+                        state.geo_upsert(
+                            self.conn, ip=ip,
+                            lat=float(entry.get("lat") or 0),
+                            lon=float(entry.get("lon") or 0),
+                            cc=str(entry.get("cc", "")),
+                            city=str(entry.get("city", "")),
+                            country=str(entry.get("country", "")),
+                            region=str(entry.get("region", "")),
+                            asn=str(entry.get("asn", "")),
+                            org=str(entry.get("org", "")),
+                            isp=str(entry.get("isp", "")),
+                        )
+                    stored += 1
+                except Exception:
+                    pass
+            log(f"geo_enriched from={payload.get('node')} stored={stored}/{len(entries)}")
+            return
+        if event_type == "geo_claim":
+            return  # handled by geo-enricher service
+
     # -- periodic work (main thread; never inside mqtt callbacks) -----------
 
     def pump_outbox(self) -> None:
